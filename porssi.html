@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pörssisähkö – mase.fi</title>
+  <meta name="description" content="Overview of today's and tomorrow's Finnish spot electricity prices (pörssisähkö) with relative cheap/normal/expensive hours.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; }
+    .tab-btn.active { border-bottom-color: #2563eb; color: #2563eb; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+  <div class="max-w-4xl mx-auto p-6">
+    <header class="text-center my-12">
+      <h1 class="text-4xl font-bold mb-4">Pörssisähkö</h1>
+      <p class="text-lg mb-2">Finnish spot electricity prices (incl. VAT)</p>
+      <a href="index.html" class="inline-block mt-6 text-blue-600 hover:underline">&larr; Back to mase.fi</a>
+    </header>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 mb-12 text-center">
+      <p class="text-xl">Current price (right now):</p>
+      <p id="current-price" class="text-6xl font-bold text-orange-600 dark:text-orange-400 my-4">Loading...</p>
+      <p id="current-rank" class="text-2xl font-semibold text-gray-700 dark:text-gray-300">Loading...</p>
+      <p class="text-sm text-gray-500">c/kWh incl. VAT • Updates on page load</p>
+    </div>
+    <div class="tabs flex justify-center mb-8 border-b-2 border-gray-300 dark:border-gray-700">
+      <button id="tab-today" class="tab-btn px-8 py-4 font-semibold">Today</button>
+      <button id="tab-tomorrow" class="tab-btn px-8 py-4 font-semibold text-gray-500">Tomorrow</button>
+    </div>
+    <div id="today-section" class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
+      <canvas id="todayChart" height="200"></canvas>
+      <div id="today-tips" class="mt-8 text-lg"></div>
+    </div>
+    <div id="tomorrow-section" class="hidden bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
+      <canvas id="tomorrowChart" height="200"></canvas>
+      <div id="tomorrow-tips" class="mt-8 text-lg"></div>
+    </div>
+    <footer class="text-center mt-12 text-sm text-gray-500">
+      Data from Nord Pool via <a href="https://spot-hinta.fi" class="underline">api.spot-hinta.fi</a> • Made by <a href="https://mase.fi" class="underline">mase.fi</a>
+    </footer>
+  </div>
+  <script>
+    async function loadElectricityPrices() {
+      try {
+        let currentPriceRaw = null;
+        let currentPriceText = 'Loading...';
+
+        // Current price – accurate + timezone-safe
+        try {
+          const justNowRes = await fetch('https://api.spot-hinta.fi/JustNow');
+          if (justNowRes.ok) {
+            const justNow = await justNowRes.json();
+            currentPriceRaw = justNow.PriceWithTax * 100;
+            currentPriceText = currentPriceRaw.toFixed(2) + ' c/kWh';
+          }
+        } catch (e) {
+          console.error('JustNow failed', e);
+        }
+        document.getElementById('current-price').textContent = currentPriceText;
+
+        // Today – always available
+        const todayRes = await fetch('https://api.spot-hinta.fi/Today');
+        if (!todayRes.ok) throw new Error('Today failed');
+        const todayData = await todayRes.json(); // 96 slots
+        const todayPrices = aggregateToHourly(todayData);
+
+        renderDay('today', todayPrices);
+
+        // Current rank
+        if (currentPriceRaw !== null && todayPrices.length === 24) {
+          const cheaper = todayPrices.filter(p => p < currentPriceRaw).length;
+          const rank = cheaper + 1;
+          document.getElementById('current-rank').textContent = `${rank}th cheapest hour of the day`;
+        } else {
+          document.getElementById('current-rank').textContent = '–/24';
+        }
+
+        // Tomorrow – optional, shows message if not ready
+        let tomorrowPrices = [];
+        try {
+          const tomorrowRes = await fetch('https://api.spot-hinta.fi/Tomorrow');
+          if (tomorrowRes.ok) {
+            const tomorrowData = await tomorrowRes.json();
+            if (tomorrowData.length >= 96) {
+              tomorrowPrices = aggregateToHourly(tomorrowData);
+              renderDay('tomorrow', tomorrowPrices);
+              document.getElementById('tab-tomorrow').classList.remove('hidden', 'text-gray-500');
+            }
+          }
+        } catch (e) {
+          console.log('Tomorrow not available yet');
+        }
+
+        if (tomorrowPrices.length === 0) {
+          document.getElementById('tomorrow-section').innerHTML = '<p class="text-center text-gray-600 dark:text-gray-400">Tomorrow\'s prices are usually published after ~14:00 Finnish time.</p>';
+        }
+
+        // Tabs
+        document.getElementById('tab-today').onclick = () => showTab('today');
+        document.getElementById('tab-tomorrow').onclick = () => showTab('tomorrow');
+        document.getElementById('tab-today').classList.add('active', 'border-blue-600', 'text-blue-600');
+        showTab('today');
+
+      } catch (error) {
+        document.getElementById('current-price').textContent = 'Error loading data';
+        document.getElementById('current-rank').textContent = '–/24';
+        console.error(error);
+      }
+    }
+
+    function aggregateToHourly(data96) {
+      if (data96.length < 96) return [];
+      const hourly = [];
+      for (let h = 0; h < 24; h++) {
+        const slot = data96[h * 4]; // price identical within hour
+        hourly.push(slot.PriceWithTax * 100);
+      }
+      return hourly;
+    }
+
+    function renderDay(day, prices) {
+      if (prices.length !== 24) return;
+
+      const labels = Array.from({length: 24}, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+
+      const sorted = [...prices].sort((a, b) => a - b);
+      const lowThresh = sorted[Math.floor(sorted.length * 0.33)];
+      const highThresh = sorted[Math.floor(sorted.length * 0.67)];
+
+      const cheap = [], normal = [], expensive = [];
+      prices.forEach((p, i) => {
+        const hour = labels[i];
+        if (p <= lowThresh) cheap.push(hour);
+        else if (p <= highThresh) normal.push(hour);
+        else expensive.push(hour);
+      });
+
+      const colors = prices.map(p =>
+        p <= lowThresh ? 'rgba(34, 197, 94, 0.8)' :
+        p <= highThresh ? 'rgba(234, 179, 8, 0.8)' :
+        'rgba(239, 68, 68, 0.8)'
+      );
+
+      const chartId = `${day}Chart`;
+      if (Chart.getChart(chartId)) Chart.getChart(chartId).destroy();
+
+      new Chart(document.getElementById(chartId), {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Price (c/kWh)',
+            data: prices.map(p => p.toFixed(1)),
+            backgroundColor: colors,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'c/kWh incl. VAT' } }
+          }
+        }
+      });
+
+      document.getElementById(`${day}-tips`).innerHTML = `
+        <p><strong>Average ${day === 'today' ? 'today' : 'tomorrow'}:</strong> ${avg.toFixed(2)} c/kWh</p>
+        <div class="grid md:grid-cols-3 gap-6 mt-6">
+          <div class="text-green-700 dark:text-green-400">
+            <strong>Cheap (~${Math.round(cheap.length/24*100)}%):</strong><br>
+            ${cheap.join(', ') || 'None'}
+          </div>
+          <div class="text-yellow-700 dark:text-yellow-400">
+            <strong>Normal (~${Math.round(normal.length/24*100)}%):</strong><br>
+            ${normal.join(', ') || 'None'}
+          </div>
+          <div class="text-red-700 dark:text-red-400">
+            <strong>Expensive (~${Math.round(expensive.length/24*100)}%):</strong><br>
+            ${expensive.join(', ') || 'None'}
+          </div>
+        </div>
+      `;
+    }
+
+    function showTab(day) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'border-blue-600', 'text-blue-600'));
+      document.getElementById(`tab-${day}`).classList.add('active', 'border-blue-600', 'text-blue-600');
+      document.getElementById('today-section').classList.toggle('hidden', day !== 'today');
+      document.getElementById('tomorrow-section').classList.toggle('hidden', day !== 'tomorrow');
+    }
+
+    loadElectricityPrices();
+  </script>
+</body>
+</html>

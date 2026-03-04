@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finnish Yatzy - 2 Players</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .game-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 1600px;
+            width: 100%;
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .current-player {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+            display: inline-block;
+            margin: 10px 0;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr 280px;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .game-area {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .dice-section {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+        }
+
+        .dice-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .die {
+            width: 80px;
+            height: 80px;
+            background: white;
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .die:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .die.kept {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #764ba2;
+        }
+
+        .die.rolling {
+            animation: roll 0.5s ease-in-out;
+        }
+
+        @keyframes roll {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(90deg); }
+            50% { transform: rotate(180deg); }
+            75% { transform: rotate(270deg); }
+        }
+
+        .controls {
+            text-align: center;
+        }
+
+        .roll-info {
+            font-size: 1.2em;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .roll-info span {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1em;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .reference-panel {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .reference-panel h3 {
+            color: #667eea;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .reference-item {
+            background: white;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .reference-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .reference-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .reference-desc {
+            font-size: 0.85em;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .reference-example {
+            font-size: 0.8em;
+            color: #764ba2;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        .scorecards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .scoring-notice {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+            color: #856404;
+            display: none;
+        }
+
+        .scoring-notice.show {
+            display: block;
+            animation: pulse 2s infinite;
+        }
+
+        .scorecard {
+            background: #f8f9fa;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .scorecard.active {
+            box-shadow: 0 0 0 3px #667eea;
+        }
+
+        .scorecard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            font-size: 1.3em;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .scorecard-body {
+            padding: 15px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .score-row:hover:not(.filled):not(.total-row) {
+            background: #e9ecef;
+            cursor: pointer;
+        }
+
+        .score-row.clickable:hover {
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            transform: translateX(5px);
+        }
+
+        .score-row.filled {
+            background: #e9ecef;
+        }
+
+        .score-row.just-scored {
+            animation: scoreFlash 1s ease;
+        }
+
+        @keyframes scoreFlash {
+            0%, 100% { background: #e9ecef; }
+            50% { background: #a8f0a8; }
+        }
+
+        .score-row.total-row {
+            border-top: 2px solid #667eea;
+            margin-top: 10px;
+            font-weight: bold;
+            background: #e7e9fc;
+        }
+
+        .score-row.bonus-row {
+            background: #fff3cd;
+            font-weight: bold;
+        }
+
+        .score-label {
+            flex: 1;
+        }
+
+        .score-value {
+            min-width: 50px;
+            text-align: right;
+            font-weight: bold;
+        }
+
+        .game-over {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .game-over.show {
+            display: flex;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .game-over-content {
+            background: white;
+            padding: 50px;
+            border-radius: 20px;
+            text-align: center;
+            animation: slideUp 0.5s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .game-over-content h2 {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .game-over-content p {
+            font-size: 1.5em;
+            margin-bottom: 30px;
+            color: #333;
+        }
+
+        .confetti {
+            position: fixed;
+            width: 10px;
+            height: 10px;
+            background: #667eea;
+            position: absolute;
+            animation: confetti-fall 3s linear infinite;
+        }
+
+        @keyframes confetti-fall {
+            to {
+                transform: translateY(100vh) rotate(360deg);
+                opacity: 0;
+            }
+        }
+
+        .section-divider {
+            border-top: 2px solid #667eea;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 1200px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .reference-panel {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .game-area {
+                flex-direction: column;
+            }
+
+            .scorecards {
+                grid-template-columns: 1fr;
+            }
+
+            .die {
+                width: 60px;
+                height: 60px;
+                font-size: 2em;
+            }
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-content h2 {
+            color: #667eea;
+            margin-bottom: 25px;
+            text-align: center;
+            font-size: 2em;
+        }
+
+        .modal-content h3 {
+            color: #667eea;
+            margin: 20px 0 15px 0;
+            font-size: 1.3em;
+        }
+
+        .player-name-input {
+            margin-bottom: 20px;
+        }
+
+        .player-name-input label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .player-name-input input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .player-name-input input:focus {
+            outline: none;
+            border-color: #764ba2;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .stat-card h4 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            text-align: center;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .stat-value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .stat-highlight {
+            color: #667eea;
+            font-size: 1.1em;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .top-stats-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .no-stats {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .edit-name-btn {
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8em;
+            text-decoration: underline;
+            margin-left: 10px;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+
+        .edit-name-btn:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <h1>🎲 Finnish Yatzy 🎲</h1>
+            <div class="current-player" id="currentPlayer">Player 1's Turn</div>
+            <div class="top-stats-buttons">
+                <button class="btn" onclick="showStatsModal()">📊 View Stats</button>
+                <button class="btn btn-secondary" onclick="showPlayerNamesModal()">✏️ Edit Names</button>
+            </div>
+        </div>
+
+        <div class="main-layout">
+            <!-- Left Reference Panel - Upper Section -->
+            <div class="reference-panel">
+                <h3>📊 Upper Section</h3>
+                <div class="reference-item" data-section="upper" data-category-index="0">
+                    <div class="reference-name">Ones</div>
+                    <div class="reference-desc">Sum of all ones</div>
+                    <div class="reference-example">⚀⚀⚀ = 3 points</div>
+                </div>
+                <div class="reference-item" data-section="upper" data-category-index="1">
+                    <div class="reference-name">Twos</div>
+                    <div class="reference-desc">Sum of all twos</div>
+                    <div class="reference-example">⚁⚁⚁ = 6 points</div>
+                </div>
+                <div class="reference-item" data-section="upper" data-category-index="2">
+                    <div class="reference-name">Threes</div>
+                    <div class="reference-desc">Sum of all threes</div>
+                    <div class="reference-example">⚂⚂⚂ = 9 points</div>
+                </div>
+                <div class="reference-item" data-section="upper" data-category-index="3">
+                    <div class="reference-name">Fours</div>
+                    <div class="reference-desc">Sum of all fours</div>
+                    <div class="reference-example">⚃⚃⚃ = 12 points</div>
+                </div>
+                <div class="reference-item" data-section="upper" data-category-index="4">
+                    <div class="reference-name">Fives</div>
+                    <div class="reference-desc">Sum of all fives</div>
+                    <div class="reference-example">⚄⚄⚄ = 15 points</div>
+                </div>
+                <div class="reference-item" data-section="upper" data-category-index="5">
+                    <div class="reference-name">Sixes</div>
+                    <div class="reference-desc">Sum of all sixes</div>
+                    <div class="reference-example">⚅⚅⚅ = 18 points</div>
+                </div>
+                <div class="reference-item" style="border-left-color: #ffc107; background: #fff3cd;">
+                    <div class="reference-name">🎯 Bonus Target</div>
+                    <div class="reference-desc">Score ≥63 in upper section</div>
+                    <div class="reference-example">Bonus: +50 points</div>
+                </div>
+            </div>
+
+            <!-- Center Game Area -->
+            <div class="game-area">
+                <div class="dice-section">
+                    <div class="dice-container" id="diceContainer">
+                        <div class="die" data-index="0">1</div>
+                        <div class="die" data-index="1">2</div>
+                        <div class="die" data-index="2">3</div>
+                        <div class="die" data-index="3">4</div>
+                        <div class="die" data-index="4">5</div>
+                    </div>
+
+                    <div class="controls">
+                        <div class="roll-info">
+                            Rolls remaining: <span id="rollsRemaining">3</span>
+                        </div>
+                        <button class="btn" id="rollBtn" onclick="rollDice()">Roll Dice</button>
+                        <button class="btn" id="newGameBtn" onclick="newGame()" style="display: none;">New Game</button>
+                        <div class="scoring-notice" id="scoringNotice">
+                            ⚠️ Selecting a category will end your turn
+                        </div>
+                    </div>
+                </div>
+
+                <div class="scorecards">
+                    <div class="scorecard active" id="scorecard1">
+                        <div class="scorecard-header">Player 1</div>
+                        <div class="scorecard-body" id="scorecardBody1"></div>
+                    </div>
+
+                    <div class="scorecard" id="scorecard2">
+                        <div class="scorecard-header">Player 2</div>
+                        <div class="scorecard-body" id="scorecardBody2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Reference Panel - Lower Section -->
+            <div class="reference-panel">
+                <h3>🎲 Lower Section</h3>
+                <div class="reference-item" data-section="lower" data-category-index="0">
+                    <div class="reference-name">One Pair</div>
+                    <div class="reference-desc">Two matching dice</div>
+                    <div class="reference-example">⚅⚅ = 12 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="1">
+                    <div class="reference-name">Two Pairs</div>
+                    <div class="reference-desc">Two different pairs</div>
+                    <div class="reference-example">⚅⚅⚄⚄ = 22 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="2">
+                    <div class="reference-name">Three of a Kind</div>
+                    <div class="reference-desc">Three matching dice</div>
+                    <div class="reference-example">⚅⚅⚅ = 18 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="3">
+                    <div class="reference-name">Four of a Kind</div>
+                    <div class="reference-desc">Four matching dice</div>
+                    <div class="reference-example">⚅⚅⚅⚅ = 24 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="4">
+                    <div class="reference-name">Small Straight</div>
+                    <div class="reference-desc">1-2-3-4-5 sequence</div>
+                    <div class="reference-example">⚀⚁⚂⚃⚄ = 15 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="5">
+                    <div class="reference-name">Large Straight</div>
+                    <div class="reference-desc">2-3-4-5-6 sequence</div>
+                    <div class="reference-example">⚁⚂⚃⚄⚅ = 20 points</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="6">
+                    <div class="reference-name">Full House</div>
+                    <div class="reference-desc">Three + two matching</div>
+                    <div class="reference-example">⚅⚅⚅⚄⚄ = sum of all</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="7">
+                    <div class="reference-name">Chance</div>
+                    <div class="reference-desc">Any combination</div>
+                    <div class="reference-example">Sum of all dice</div>
+                </div>
+                <div class="reference-item" data-section="lower" data-category-index="8" style="border-left-color: #ffc107; background: #fff3cd;">
+                    <div class="reference-name">🎯 YATZY!</div>
+                    <div class="reference-desc">Five matching dice</div>
+                    <div class="reference-example">⚅⚅⚅⚅⚅ = 50 points</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="game-over" id="gameOver">
+        <div class="game-over-content">
+            <h2>🎉 Game Over! 🎉</h2>
+            <p id="winnerText"></p>
+            <button class="btn" onclick="newGame()">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Player Names Modal -->
+    <div class="modal" id="playerNamesModal">
+        <div class="modal-content">
+            <h2>👥 Player Names</h2>
+            <div class="player-name-input">
+                <label for="player1Name">Player 1 Name:</label>
+                <input type="text" id="player1Name" placeholder="Enter Player 1's name" maxlength="20" onfocus="this.select()">
+            </div>
+            <div class="player-name-input">
+                <label for="player2Name">Player 2 Name:</label>
+                <input type="text" id="player2Name" placeholder="Enter Player 2's name" maxlength="20" onfocus="this.select()">
+            </div>
+            <div class="btn-group">
+                <button class="btn" onclick="savePlayerNames()">Save Names</button>
+                <button class="btn btn-secondary" onclick="closePlayerNamesModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Modal -->
+    <div class="modal" id="statsModal">
+        <div class="modal-content">
+            <h2>📊 Game Statistics</h2>
+            <div id="statsContent"></div>
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="closeStatsModal()">Close</button>
+                <button class="btn btn-danger" onclick="confirmResetStats()">Reset All Stats</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Reset localStorage on every page load to ensure fresh start on refresh
+        localStorage.removeItem('yatzy_playerNames');
+        localStorage.removeItem('yatzy_statistics');
+
+        // Game State
+        let currentPlayer = 1;
+        let rollsRemaining = 3;
+        let diceValues = [1, 2, 3, 4, 5];
+        let keptDice = [false, false, false, false, false];
+        let hasRolled = false;
+        let currentGameRolls = 0; // Track rolls in current game
+
+        // Player Names
+        let playerNames = {
+            player1: 'Player 1',
+            player2: 'Player 2'
+        };
+
+        const scoreCategories = {
+            upper: [
+                { id: 'ones', name: 'Ones', value: null },
+                { id: 'twos', name: 'Twos', value: null },
+                { id: 'threes', name: 'Threes', value: null },
+                { id: 'fours', name: 'Fours', value: null },
+                { id: 'fives', name: 'Fives', value: null },
+                { id: 'sixes', name: 'Sixes', value: null }
+            ],
+            lower: [
+                { id: 'onePair', name: 'One Pair', value: null },
+                { id: 'twoPairs', name: 'Two Pairs', value: null },
+                { id: 'threeOfKind', name: 'Three of a Kind', value: null },
+                { id: 'fourOfKind', name: 'Four of a Kind', value: null },
+                { id: 'smallStraight', name: 'Small Straight', value: null },
+                { id: 'largeStraight', name: 'Large Straight', value: null },
+                { id: 'fullHouse', name: 'Full House', value: null },
+                { id: 'chance', name: 'Chance', value: null },
+                { id: 'yatzy', name: 'Yatzy', value: null }
+            ]
+        };
+
+        let player1Scores = JSON.parse(JSON.stringify(scoreCategories));
+        let player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+
+        // Initialize game
+        function init() {
+            loadPlayerNames();
+            setupDiceListeners();
+            renderScorecard(1);
+            renderScorecard(2);
+            updateReferences();
+            updateUI();
+            rollDice();
+        }
+
+        // ===== PLAYER NAMES MANAGEMENT =====
+        
+        function loadPlayerNames() {
+            const saved = localStorage.getItem('yatzy_playerNames');
+            if (saved) {
+                playerNames = JSON.parse(saved);
+            }
+            updatePlayerNamesDisplay();
+        }
+
+        function savePlayerNamesToStorage() {
+            localStorage.setItem('yatzy_playerNames', JSON.stringify(playerNames));
+        }
+
+        function updatePlayerNamesDisplay() {
+            document.getElementById('scorecard1').querySelector('.scorecard-header').textContent = playerNames.player1;
+            document.getElementById('scorecard2').querySelector('.scorecard-header').textContent = playerNames.player2;
+            updateUI(); // This will update the current player display
+        }
+
+        function showPlayerNamesModal() {
+            const modal = document.getElementById('playerNamesModal');
+            const p1Input = document.getElementById('player1Name');
+            const p2Input = document.getElementById('player2Name');
+            
+            p1Input.value = playerNames.player1;
+            p2Input.value = playerNames.player2;
+            
+            modal.classList.add('show');
+            
+            // Auto-focus and select the first input for easy editing
+            setTimeout(() => {
+                p1Input.focus();
+                p1Input.select();
+            }, 100);
+        }
+
+        function closePlayerNamesModal() {
+            document.getElementById('playerNamesModal').classList.remove('show');
+        }
+
+        function savePlayerNames() {
+            const p1Input = document.getElementById('player1Name').value.trim();
+            const p2Input = document.getElementById('player2Name').value.trim();
+            
+            playerNames.player1 = p1Input || 'Player 1';
+            playerNames.player2 = p2Input || 'Player 2';
+            
+            savePlayerNamesToStorage();
+            updatePlayerNamesDisplay();
+            closePlayerNamesModal();
+        }
+
+        // ===== STATISTICS MANAGEMENT =====
+
+        function getPlayerStats(playerName) {
+            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
+            return allStats[playerName] || {
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                totalRolls: 0,
+                highestScore: 0,
+                totalPoints: 0,
+                yatzysScored: 0,
+                bonusCount: 0
+            };
+        }
+
+        function savePlayerStats(playerName, stats) {
+            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
+            allStats[playerName] = stats;
+            localStorage.setItem('yatzy_statistics', JSON.stringify(allStats));
+        }
+
+        function updateGameStatistics(winner, p1Score, p2Score, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy) {
+            // Update Player 1 stats
+            const p1Stats = getPlayerStats(playerNames.player1);
+            p1Stats.gamesPlayed++;
+            p1Stats.totalRolls += currentGameRolls;
+            p1Stats.totalPoints += p1Score;
+            if (p1Score > p1Stats.highestScore) p1Stats.highestScore = p1Score;
+            if (p1Bonus) p1Stats.bonusCount++;
+            if (p1Yatzy) p1Stats.yatzysScored++;
+            if (winner === 1) {
+                p1Stats.wins++;
+            } else if (winner === 2) {
+                p1Stats.losses++;
+            }
+            savePlayerStats(playerNames.player1, p1Stats);
+
+            // Update Player 2 stats
+            const p2Stats = getPlayerStats(playerNames.player2);
+            p2Stats.gamesPlayed++;
+            p2Stats.totalRolls += currentGameRolls;
+            p2Stats.totalPoints += p2Score;
+            if (p2Score > p2Stats.highestScore) p2Stats.highestScore = p2Score;
+            if (p2Bonus) p2Stats.bonusCount++;
+            if (p2Yatzy) p2Stats.yatzysScored++;
+            if (winner === 2) {
+                p2Stats.wins++;
+            } else if (winner === 1) {
+                p2Stats.losses++;
+            }
+            savePlayerStats(playerNames.player2, p2Stats);
+        }
+
+        function showStatsModal() {
+            renderStatistics();
+            document.getElementById('statsModal').classList.add('show');
+        }
+
+        function closeStatsModal() {
+            document.getElementById('statsModal').classList.remove('show');
+        }
+
+        function renderStatistics() {
+            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
+            const content = document.getElementById('statsContent');
+            
+            if (Object.keys(allStats).length === 0) {
+                content.innerHTML = '<div class="no-stats">No statistics available yet. Play some games to see your stats!</div>';
+                return;
+            }
+
+            let html = '<div class="stats-grid">';
+            
+            for (const [playerName, stats] of Object.entries(allStats)) {
+                const winRate = stats.gamesPlayed > 0 ? ((stats.wins / stats.gamesPlayed) * 100).toFixed(1) : '0.0';
+                const avgScore = stats.gamesPlayed > 0 ? (stats.totalPoints / stats.gamesPlayed).toFixed(1) : '0.0';
+                const avgRolls = stats.gamesPlayed > 0 ? (stats.totalRolls / stats.gamesPlayed).toFixed(1) : '0.0';
+                
+                html += `
+                    <div class="stat-card">
+                        <h4>🎲 ${playerName}</h4>
+                        <div class="stat-row">
+                            <span class="stat-label">Games Played</span>
+                            <span class="stat-value stat-highlight">${stats.gamesPlayed}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Wins</span>
+                            <span class="stat-value" style="color: #28a745;">${stats.wins}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Losses</span>
+                            <span class="stat-value" style="color: #dc3545;">${stats.losses}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Win Rate</span>
+                            <span class="stat-value stat-highlight">${winRate}%</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Highest Score</span>
+                            <span class="stat-value" style="color: #ffc107;">${stats.highestScore}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Average Score</span>
+                            <span class="stat-value">${avgScore}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Total Points</span>
+                            <span class="stat-value">${stats.totalPoints}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Average Rolls/Game</span>
+                            <span class="stat-value">${avgRolls}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Yatzys Scored</span>
+                            <span class="stat-value" style="color: #667eea;">🎯 ${stats.yatzysScored}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Bonuses Earned</span>
+                            <span class="stat-value" style="color: #ffc107;">⭐ ${stats.bonusCount}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            content.innerHTML = html;
+        }
+
+        function confirmResetStats() {
+            if (confirm('Are you sure you want to reset ALL statistics? This cannot be undone!')) {
+                localStorage.removeItem('yatzy_statistics');
+                renderStatistics();
+                alert('All statistics have been reset.');
+            }
+        }
+
+        // Setup dice click listeners
+        function setupDiceListeners() {
+            const dice = document.querySelectorAll('.die');
+            dice.forEach((die, index) => {
+                die.addEventListener('click', () => toggleKeepDie(index));
+            });
+        }
+
+        // Toggle keeping a die
+        function toggleKeepDie(index) {
+            if (!hasRolled || rollsRemaining === 3) return;
+            keptDice[index] = !keptDice[index];
+            updateDiceDisplay();
+        }
+
+        // Roll dice
+        function rollDice() {
+            if (rollsRemaining === 0) return;
+
+            hasRolled = true;
+            currentGameRolls++; // Track total rolls in game
+            const dice = document.querySelectorAll('.die');
+            
+            // Add rolling animation
+            dice.forEach(die => die.classList.add('rolling'));
+
+            setTimeout(() => {
+                // Roll non-kept dice
+                for (let i = 0; i < 5; i++) {
+                    if (!keptDice[i]) {
+                        diceValues[i] = Math.floor(Math.random() * 6) + 1;
+                    }
+                }
+
+                rollsRemaining--;
+                updateDiceDisplay();
+                updateUI();
+                
+                // Remove rolling animation
+                dice.forEach(die => die.classList.remove('rolling'));
+
+                // Update scorecard to show potential scores after each roll
+                renderScorecard(currentPlayer);
+
+                // Enable scoring after any roll (not just after all 3 rolls)
+                if (rollsRemaining < 3) {
+                    enableScoring();
+                }
+            }, 500);
+        }
+
+        // Update dice display
+        function updateDiceDisplay() {
+            const dice = document.querySelectorAll('.die');
+            dice.forEach((die, index) => {
+                die.textContent = getDieFace(diceValues[index]);
+                if (keptDice[index]) {
+                    die.classList.add('kept');
+                } else {
+                    die.classList.remove('kept');
+                }
+            });
+        }
+
+        // Get die face (dots)
+        function getDieFace(value) {
+            const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+            return faces[value - 1];
+        }
+
+        // Update UI
+        function updateUI() {
+            const currentPlayerName = currentPlayer === 1 ? playerNames.player1 : playerNames.player2;
+            document.getElementById('currentPlayer').textContent = `${currentPlayerName}'s Turn`;
+            document.getElementById('rollsRemaining').textContent = rollsRemaining;
+            
+            const rollBtn = document.getElementById('rollBtn');
+            rollBtn.disabled = rollsRemaining === 0;
+
+            // Update active scorecard
+            document.getElementById('scorecard1').classList.toggle('active', currentPlayer === 1);
+            document.getElementById('scorecard2').classList.toggle('active', currentPlayer === 2);
+        }
+
+        // Enable scoring
+        function enableScoring() {
+            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
+            renderScorecard(currentPlayer, true);
+            
+            // Show notice that scoring will end turn
+            const notice = document.getElementById('scoringNotice');
+            if (notice) {
+                notice.classList.add('show');
+            }
+        }
+
+        // Render scorecard
+        function renderScorecard(player, enableClick = false) {
+            const scores = player === 1 ? player1Scores : player2Scores;
+            const container = document.getElementById(`scorecardBody${player}`);
+            
+            let html = '';
+
+            // Upper section
+            scores.upper.forEach(cat => {
+                const score = cat.value !== null ? cat.value : '—';
+                // Show potential scores after any roll if current player and category not filled
+                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
+                const potential = showPotential ? calculateScore(cat.id) : null;
+                const clickable = enableClick && cat.value === null && potential !== null;
+                
+                html += `
+                    <div class="score-row ${cat.value !== null ? 'filled' : ''} ${clickable ? 'clickable' : ''}"
+                         ${clickable ? `onclick="scoreCategory('${cat.id}')"` : ''}>
+                        <div class="score-label">${cat.name}</div>
+                        <div class="score-value">${cat.value !== null ? score : (potential !== null ? `(${potential})` : '—')}</div>
+                    </div>
+                `;
+            });
+
+            // Upper section total and bonus
+            const upperTotal = calculateUpperTotal(scores);
+            const bonus = upperTotal >= 63 ? 50 : 0;
+            
+            html += `<div class="section-divider"></div>`;
+            html += `
+                <div class="score-row total-row">
+                    <div class="score-label">Upper Total</div>
+                    <div class="score-value">${upperTotal}</div>
+                </div>
+                <div class="score-row bonus-row">
+                    <div class="score-label">Bonus (≥63)</div>
+                    <div class="score-value">${bonus}</div>
+                </div>
+            `;
+
+            html += `<div class="section-divider"></div>`;
+
+            // Lower section
+            scores.lower.forEach(cat => {
+                const score = cat.value !== null ? cat.value : '—';
+                // Show potential scores after any roll if current player and category not filled
+                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
+                const potential = showPotential ? calculateScore(cat.id) : null;
+                const clickable = enableClick && cat.value === null && potential !== null;
+                
+                html += `
+                    <div class="score-row ${cat.value !== null ? 'filled' : ''} ${clickable ? 'clickable' : ''}"
+                         ${clickable ? `onclick="scoreCategory('${cat.id}')"` : ''}>
+                        <div class="score-label">${cat.name}</div>
+                        <div class="score-value">${cat.value !== null ? score : (potential !== null ? `(${potential})` : '—')}</div>
+                    </div>
+                `;
+            });
+
+            // Grand total
+            const grandTotal = calculateGrandTotal(scores);
+            html += `<div class="section-divider"></div>`;
+            html += `
+                <div class="score-row total-row">
+                    <div class="score-label">TOTAL</div>
+                    <div class="score-value">${grandTotal}</div>
+                </div>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        // Calculate upper section total
+        function calculateUpperTotal(scores) {
+            return scores.upper.reduce((sum, cat) => sum + (cat.value || 0), 0);
+        }
+
+        // Calculate grand total
+        function calculateGrandTotal(scores) {
+            const upperTotal = calculateUpperTotal(scores);
+            const bonus = upperTotal >= 63 ? 50 : 0;
+            const lowerTotal = scores.lower.reduce((sum, cat) => sum + (cat.value || 0), 0);
+            return upperTotal + bonus + lowerTotal;
+        }
+
+        // Score a category
+        function scoreCategory(categoryId) {
+            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
+            const score = calculateScore(categoryId);
+
+            if (score === null) return;
+
+            // Find and set the score
+            let category = scores.upper.find(c => c.id === categoryId);
+            if (!category) {
+                category = scores.lower.find(c => c.id === categoryId);
+            }
+
+            if (category && category.value === null) {
+                category.value = score;
+                
+                // Re-render the scorecard
+                renderScorecard(currentPlayer);
+                updateReferences();
+
+                // Add flash animation
+                setTimeout(() => {
+                    const rows = document.querySelectorAll(`#scorecardBody${currentPlayer} .score-row`);
+                    rows.forEach(row => {
+                        if (row.textContent.includes(category.name)) {
+                            row.classList.add('just-scored');
+                            setTimeout(() => row.classList.remove('just-scored'), 1000);
+                        }
+                    });
+                }, 100);
+
+                // Check if game is over
+                if (isGameOver()) {
+                    endGame();
+                } else {
+                    // Next turn
+                    nextTurn();
+                }
+            }
+        }
+
+        // Calculate score for a category
+        function calculateScore(categoryId) {
+            const sorted = [...diceValues].sort((a, b) => a - b);
+            const counts = {};
+            diceValues.forEach(d => counts[d] = (counts[d] || 0) + 1);
+
+            switch(categoryId) {
+                case 'ones':
+                    return diceValues.filter(d => d === 1).reduce((a, b) => a + b, 0);
+                case 'twos':
+                    return diceValues.filter(d => d === 2).reduce((a, b) => a + b, 0);
+                case 'threes':
+                    return diceValues.filter(d => d === 3).reduce((a, b) => a + b, 0);
+                case 'fours':
+                    return diceValues.filter(d => d === 4).reduce((a, b) => a + b, 0);
+                case 'fives':
+                    return diceValues.filter(d => d === 5).reduce((a, b) => a + b, 0);
+                case 'sixes':
+                    return diceValues.filter(d => d === 6).reduce((a, b) => a + b, 0);
+                case 'onePair':
+                    const pairs = Object.entries(counts).filter(([_, count]) => count >= 2).map(([val, _]) => parseInt(val));
+                    return pairs.length > 0 ? Math.max(...pairs) * 2 : 0;
+                case 'twoPairs':
+                    const pairsArray = Object.entries(counts).filter(([_, count]) => count >= 2).map(([val, _]) => parseInt(val));
+                    if (pairsArray.length >= 2) {
+                        pairsArray.sort((a, b) => b - a);
+                        return pairsArray[0] * 2 + pairsArray[1] * 2;
+                    }
+                    return 0;
+                case 'threeOfKind':
+                    const threeValue = Object.entries(counts).find(([_, count]) => count >= 3);
+                    return threeValue ? parseInt(threeValue[0]) * 3 : 0;
+                case 'fourOfKind':
+                    const fourValue = Object.entries(counts).find(([_, count]) => count >= 4);
+                    return fourValue ? parseInt(fourValue[0]) * 4 : 0;
+                case 'smallStraight':
+                    const small = [1, 2, 3, 4, 5];
+                    return small.every(v => sorted.includes(v)) ? 15 : 0;
+                case 'largeStraight':
+                    const large = [2, 3, 4, 5, 6];
+                    return large.every(v => sorted.includes(v)) ? 20 : 0;
+                case 'fullHouse':
+                    const hasThree = Object.values(counts).some(c => c === 3);
+                    const hasTwo = Object.values(counts).some(c => c === 2);
+                    return (hasThree && hasTwo) ? diceValues.reduce((a, b) => a + b, 0) : 0;
+                case 'chance':
+                    return diceValues.reduce((a, b) => a + b, 0);
+                case 'yatzy':
+                    return Object.values(counts).some(c => c === 5) ? 50 : 0;
+                default:
+                    return null;
+            }
+        }
+
+        // Next turn
+        function nextTurn() {
+            // Hide scoring notice
+            const notice = document.getElementById('scoringNotice');
+            if (notice) {
+                notice.classList.remove('show');
+            }
+            
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            rollsRemaining = 3;
+            keptDice = [false, false, false, false, false];
+            hasRolled = false;
+            
+            // Reset dice display
+            diceValues = [1, 2, 3, 4, 5];
+            updateDiceDisplay();
+            updateUI();
+            
+            renderScorecard(1);
+            renderScorecard(2);
+            updateReferences();
+            rollDice();
+        }
+
+        // Check if game is over
+        function isGameOver() {
+            const player1Complete = [...player1Scores.upper, ...player1Scores.lower].every(cat => cat.value !== null);
+            const player2Complete = [...player2Scores.upper, ...player2Scores.lower].every(cat => cat.value !== null);
+            return player1Complete && player2Complete;
+        }
+
+        // End game
+        function endGame() {
+            const p1Total = calculateGrandTotal(player1Scores);
+            const p2Total = calculateGrandTotal(player2Scores);
+            
+            // Calculate bonuses and yatzys for statistics
+            const p1UpperTotal = calculateUpperTotal(player1Scores);
+            const p2UpperTotal = calculateUpperTotal(player2Scores);
+            const p1Bonus = p1UpperTotal >= 63;
+            const p2Bonus = p2UpperTotal >= 63;
+            const p1Yatzy = player1Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
+            const p2Yatzy = player2Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
+            
+            // Determine winner
+            let winner = 0; // 0 = tie, 1 = player 1, 2 = player 2
+            let winnerText = '';
+            if (p1Total > p2Total) {
+                winner = 1;
+                winnerText = `${playerNames.player1} Wins! 🎉<br>Score: ${p1Total} - ${p2Total}`;
+            } else if (p2Total > p1Total) {
+                winner = 2;
+                winnerText = `${playerNames.player2} Wins! 🎉<br>Score: ${p2Total} - ${p1Total}`;
+            } else {
+                winnerText = `It's a Tie! 🤝<br>Score: ${p1Total} - ${p2Total}`;
+            }
+
+            // Save statistics
+            updateGameStatistics(winner, p1Total, p2Total, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy);
+
+            document.getElementById('winnerText').innerHTML = winnerText;
+            document.getElementById('gameOver').classList.add('show');
+            
+            // Show confetti
+            createConfetti();
+        }
+
+        // Create confetti effect
+        function createConfetti() {
+            const colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b'];
+            for (let i = 0; i < 50; i++) {
+                setTimeout(() => {
+                    const confetti = document.createElement('div');
+                    confetti.className = 'confetti';
+                    confetti.style.left = Math.random() * 100 + '%';
+                    confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+                    confetti.style.animationDelay = Math.random() * 2 + 's';
+                    confetti.style.animationDuration = (Math.random() * 2 + 3) + 's';
+                    document.body.appendChild(confetti);
+                    
+                    setTimeout(() => confetti.remove(), 5000);
+                }, i * 50);
+            }
+        }
+
+        function updateReferences() {
+            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
+            
+            document.querySelectorAll('.reference-item[data-section]').forEach(item => {
+                const section = item.dataset.section;
+                const idx = parseInt(item.dataset.categoryIndex);
+                const catScores = section === 'upper' ? scores.upper : scores.lower;
+                
+                if (catScores[idx].value !== null) {
+                    item.style.display = 'none';
+                } else {
+                    item.style.display = 'block';
+                }
+            });
+        }
+        
+        // New game
+        function newGame() {
+            currentPlayer = 1;
+            rollsRemaining = 3;
+            diceValues = [1, 2, 3, 4, 5];
+            keptDice = [false, false, false, false, false];
+            hasRolled = false;
+            currentGameRolls = 0; // Reset roll counter
+
+            player1Scores = JSON.parse(JSON.stringify(scoreCategories));
+            player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+
+            document.getElementById('gameOver').classList.remove('show');
+            
+            updateDiceDisplay();
+            renderScorecard(1);
+            renderScorecard(2);
+            updateReferences();
+            updateUI();
+            rollDice();
+        }
+
+        // Initialize game on load
+        init();
+    </script>
+</body>
+</html>
