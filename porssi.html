@@ -82,13 +82,13 @@
         // Tomorrow – optional, shows message if not ready
         let tomorrowPrices = [];
         try {
-          const tomorrowRes = await fetch('https://api.spot-hinta.fi/Tomorrow');
+          const tomorrowRes = await fetch('https://api.spot-hinta.fi/DayForward');
           if (tomorrowRes.ok) {
             const tomorrowData = await tomorrowRes.json();
             if (tomorrowData.length >= 96) {
               tomorrowPrices = extractPrices(tomorrowData);
               renderDay('tomorrow', tomorrowPrices);
-              document.getElementById('tab-tomorrow').classList.remove('hidden', 'text-gray-500');
+              document.getElementById('tab-tomorrow').classList.remove('text-gray-500');
             }
           }
         } catch (e) {
@@ -107,7 +107,7 @@
 
       } catch (error) {
         document.getElementById('current-price').textContent = 'Error loading data';
-        document.getElementById('current-rank').textContent = '–/24';
+        document.getElementById('current-rank').textContent = '–/96';
         console.error(error);
       }
     }
@@ -167,13 +167,21 @@
           labels: labels,
           datasets: [{
             label: 'Price (c/kWh)',
-            data: prices.map(p => p.toFixed(2)),
+            data: prices,
             backgroundColor: colors,
           }]
         },
         options: {
           responsive: true,
-          plugins: { legend: { display: false } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => items[0].label,
+                label: (item) => ` ${item.raw.toFixed(2)} c/kWh`,
+              }
+            }
+          },
           scales: {
             x: {
               ticks: {
