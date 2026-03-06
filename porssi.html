@@ -65,17 +65,18 @@
         const todayRes = await fetch('https://api.spot-hinta.fi/Today');
         if (!todayRes.ok) throw new Error('Today failed');
         const todayData = await todayRes.json(); // 96 slots
-        const todayPrices = aggregateToHourly(todayData);
+        const todayPrices = extractPrices(todayData);
 
         renderDay('today', todayPrices);
 
         // Current rank
-        if (currentPriceRaw !== null && todayPrices.length === 24) {
+        if (currentPriceRaw !== null && todayPrices.length === 96) {
           const cheaper = todayPrices.filter(p => p < currentPriceRaw).length;
           const rank = cheaper + 1;
-          document.getElementById('current-rank').textContent = `${rank}th cheapest hour of the day`;
+          const ordinal = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : `${rank}th`;
+          document.getElementById('current-rank').textContent = `${ordinal} cheapest quarter of the day`;
         } else {
-          document.getElementById('current-rank').textContent = '–/24';
+          document.getElementById('current-rank').textContent = '–/96';
         }
 
         // Tomorrow – optional, shows message if not ready
@@ -85,7 +86,7 @@
           if (tomorrowRes.ok) {
             const tomorrowData = await tomorrowRes.json();
             if (tomorrowData.length >= 96) {
-              tomorrowPrices = aggregateToHourly(tomorrowData);
+              tomorrowPrices = extractPrices(tomorrowData);
               renderDay('tomorrow', tomorrowPrices);
               document.getElementById('tab-tomorrow').classList.remove('hidden', 'text-gray-500');
             }
@@ -111,32 +112,44 @@
       }
     }
 
-    function aggregateToHourly(data96) {
+    function extractPrices(data96) {
       if (data96.length < 96) return [];
-      const hourly = [];
-      for (let h = 0; h < 24; h++) {
-        const slot = data96[h * 4]; // price identical within hour
-        hourly.push(slot.PriceWithTax * 100);
+      return data96.map(slot => slot.PriceWithTax * 100);
+    }
+
+    function slotLabel(i) {
+      const h = Math.floor(i / 4);
+      const m = (i % 4) * 15;
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    }
+
+    function groupRanges(indices) {
+      if (!indices.length) return 'None';
+      const ranges = [];
+      let start = indices[0], prev = indices[0];
+      for (let k = 1; k <= indices.length; k++) {
+        if (k < indices.length && indices[k] === prev + 1) { prev = indices[k]; continue; }
+        ranges.push(start === prev ? slotLabel(start) : `${slotLabel(start)}–${slotLabel(prev + 1)}`);
+        if (k < indices.length) { start = indices[k]; prev = indices[k]; }
       }
-      return hourly;
+      return ranges.join(', ');
     }
 
     function renderDay(day, prices) {
-      if (prices.length !== 24) return;
+      if (prices.length !== 96) return;
 
-      const labels = Array.from({length: 24}, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+      const labels = Array.from({length: 96}, (_, i) => slotLabel(i));
       const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
 
       const sorted = [...prices].sort((a, b) => a - b);
       const lowThresh = sorted[Math.floor(sorted.length * 0.33)];
       const highThresh = sorted[Math.floor(sorted.length * 0.67)];
 
-      const cheap = [], normal = [], expensive = [];
+      const cheapIdx = [], normalIdx = [], expensiveIdx = [];
       prices.forEach((p, i) => {
-        const hour = labels[i];
-        if (p <= lowThresh) cheap.push(hour);
-        else if (p <= highThresh) normal.push(hour);
-        else expensive.push(hour);
+        if (p <= lowThresh) cheapIdx.push(i);
+        else if (p <= highThresh) normalIdx.push(i);
+        else expensiveIdx.push(i);
       });
 
       const colors = prices.map(p =>
@@ -154,7 +167,7 @@
           labels: labels,
           datasets: [{
             label: 'Price (c/kWh)',
-            data: prices.map(p => p.toFixed(1)),
+            data: prices.map(p => p.toFixed(2)),
             backgroundColor: colors,
           }]
         },
@@ -162,6 +175,13 @@
           responsive: true,
           plugins: { legend: { display: false } },
           scales: {
+            x: {
+              ticks: {
+                callback: function(val, i) { return i % 4 === 0 ? this.getLabelForValue(i) : ''; },
+                maxRotation: 45,
+                minRotation: 45,
+              }
+            },
             y: { beginAtZero: true, title: { display: true, text: 'c/kWh incl. VAT' } }
           }
         }
@@ -171,16 +191,16 @@
         <p><strong>Average ${day === 'today' ? 'today' : 'tomorrow'}:</strong> ${avg.toFixed(2)} c/kWh</p>
         <div class="grid md:grid-cols-3 gap-6 mt-6">
           <div class="text-green-700 dark:text-green-400">
-            <strong>Cheap (~${Math.round(cheap.length/24*100)}%):</strong><br>
-            ${cheap.join(', ') || 'None'}
+            <strong>Cheap (~${Math.round(cheapIdx.length/96*100)}%):</strong><br>
+            ${groupRanges(cheapIdx)}
           </div>
           <div class="text-yellow-700 dark:text-yellow-400">
-            <strong>Normal (~${Math.round(normal.length/24*100)}%):</strong><br>
-            ${normal.join(', ') || 'None'}
+            <strong>Normal (~${Math.round(normalIdx.length/96*100)}%):</strong><br>
+            ${groupRanges(normalIdx)}
           </div>
           <div class="text-red-700 dark:text-red-400">
-            <strong>Expensive (~${Math.round(expensive.length/24*100)}%):</strong><br>
-            ${expensive.join(', ') || 'None'}
+            <strong>Expensive (~${Math.round(expensiveIdx.length/96*100)}%):</strong><br>
+            ${groupRanges(expensiveIdx)}
           </div>
         </div>
       `;
