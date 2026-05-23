@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<!-- Fast keyboard-first data-entry tool for the Työhyvinvoinnin huipulla 2026 paper feedback form -->
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Palaute · Työhyvinvoinnin huipulla 2026</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --ink: #1f2933;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #0d9488;
+    --accent-dark: #0f766e;
+    --accent-tint: #ccfbf1;
+    --danger: #dc2626;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* ---- Top bar ---- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 20px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .topbar .title { font-size: 15px; font-weight: 600; }
+  .topbar .title small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .actions { display: flex; align-items: center; gap: 10px; }
+  .count { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  /* ---- Buttons ---- */
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink);
+    border-radius: 8px; padding: 8px 14px; transition: background .12s, border-color .12s, color .12s;
+  }
+  button:hover { background: #f9fafb; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-dark); }
+  button.ghost { background: transparent; }
+  button.danger { color: var(--danger); border-color: #fca5a5; }
+  button.danger:hover { background: #fef2f2; }
+  /* ---- Layout ---- */
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 24px;
+  }
+  .hidden { display: none !important; }
+  .form-no { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .form-no.editing { color: var(--accent-dark); font-weight: 600; }
+  fieldset { border: none; margin-bottom: 22px; }
+  legend, .field-label {
+    font-size: 13px; font-weight: 600; color: var(--ink);
+    margin-bottom: 8px; display: block;
+  }
+  .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+  /* ---- Choice rows (attendance / recommend) ---- */
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+  .choice {
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px;
+    background: var(--card); font-size: 14px;
+  }
+  .choice .key { font-size: 11px; color: var(--muted); margin-right: 6px; }
+  .choice.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .choice.sel .key { color: #d1fae5; }
+  /* ---- Rating grid ---- */
+  .scale-legend { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .grid { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .grid-row { display: grid; grid-template-columns: 1fr repeat(5, 44px) 44px; align-items: stretch; }
+  .grid-row + .grid-row { border-top: 1px solid var(--line); }
+  .grid-row.head { background: #f9fafb; font-size: 12px; color: var(--muted); }
+  .grid-row.head .glabel { font-weight: 600; }
+  .grid-row.cursor { background: var(--accent-tint); }
+  .glabel { padding: 9px 12px; font-size: 13px; display: flex; align-items: center; }
+  .gcell {
+    border-left: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
+    font-size: 13px; cursor: pointer; user-select: none; color: var(--muted);
+  }
+  .grid-row.head .gcell { cursor: default; }
+  .gcell:hover:not(.head-cell) { background: #f0fdfa; }
+  .gcell.on { background: var(--accent); color: #fff; font-weight: 600; }
+  .gcell.skip { color: #cbd5e1; font-style: italic; }
+  /* ---- Free text + suggestions ---- */
+  .ftblock { margin-bottom: 18px; position: relative; }
+  textarea {
+    width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; resize: vertical; min-height: 46px; color: var(--ink);
+  }
+  textarea:focus { outline: 2px solid var(--accent-tint); border-color: var(--accent); }
+  .suggest {
+    position: absolute; left: 0; right: 0; z-index: 10; margin-top: 2px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: var(--shadow); max-height: 220px; overflow-y: auto;
+  }
+  .suggest-item {
+    display: flex; justify-content: space-between; gap: 10px; padding: 8px 11px;
+    font-size: 13px; cursor: pointer; border-bottom: 1px solid #f3f4f6;
+  }
+  .suggest-item:last-child { border-bottom: none; }
+  .suggest-item.active, .suggest-item:hover { background: var(--accent-tint); }
+  .suggest-item .freq { color: var(--accent-dark); font-size: 12px; white-space: nowrap; }
+  .suggest-head { padding: 6px 11px; font-size: 11px; color: var(--muted); background: #f9fafb; }
+  /* ---- Raffle ---- */
+  .raffle { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .raffle input { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .raffle input:focus { outline: 2px solid var(--accent-tint); border-color: var(--accent); }
+  /* ---- Save footer ---- */
+  .save-row { display: flex; align-items: center; gap: 14px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .save-row .hint { flex: 1; }
+  /* ---- Review list ---- */
+  .review-empty { color: var(--muted); text-align: center; padding: 30px 0; }
+  .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .rev-item:last-child { border-bottom: none; }
+  .rev-no { font-weight: 600; width: 34px; color: var(--muted); }
+  .rev-body { flex: 1; min-width: 0; font-size: 13px; }
+  .rev-meta { color: var(--muted); }
+  .rev-snip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+  .rev-actions { display: flex; gap: 6px; }
+  .rev-actions button { padding: 5px 10px; font-size: 13px; }
+  .danger-zone { margin-top: 24px; display: flex; justify-content: flex-end; }
+  @media (max-width: 560px) {
+    .raffle { grid-template-columns: 1fr; }
+    .grid-row { grid-template-columns: 1fr repeat(5, 36px) 36px; }
+    .topbar .title small { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="title">Palaute<small>Työhyvinvoinnin huipulla 2026 · Oulu 21.–22.5.</small></div>
+  <div class="actions">
+    <span class="count" id="count">0 tallennettu</span>
+    <button id="reviewBtn" class="ghost">Tarkastele</button>
+    <button id="exportBtn" class="primary">Vie Excel</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===== ENTRY VIEW ===== -->
+  <section id="entry" class="card"></section>
+
+  <!-- ===== REVIEW VIEW ===== -->
+  <section id="review" class="card hidden"></section>
+</main>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ * Static config — mirrors the paper form exactly
+ * ------------------------------------------------------------------ */
+const STORAGE_KEY = "palaute_huippu2026_v1";
+
+const ATTENDANCE = [
+  { v: "both", label: "Molemmat päivät" },
+  { v: "thu",  label: "Torstai" },
+  { v: "fri",  label: "Perjantai" },
+];
+const RATING_ITEMS = [
+  "Tapahtuman kokonaisuus",
+  "Ohjelman ajankohtaisuus",
+  "Sain työssä hyödynnettävää tietoa",
+  "Luennoitsijoiden asiantuntemus",
+  "Aikataulun toimivuus",
+  "Tilat ja käytännön järjestelyt",
+  "Näytteilleasettajilta saatu tieto",
+];
+const SCALE = "1 = heikko · 2 = välttävä · 3 = hyvä · 4 = erittäin hyvä · 5 = erinomainen";
+const RECOMMEND = [
+  { v: "kylla", label: "Kyllä" },
+  { v: "ehka",  label: "Ehkä" },
+  { v: "en",    label: "En" },
+];
+// key = storage key, q = question text on the form
+const FREETEXT = [
+  { key: "best",    q: "Mikä oli päivien parasta antia?" },
+  { key: "improve", q: "Missä oli mielestäsi kehitettävää?" },
+  { key: "topics",  q: "Mitä aiheita toivoisit tuleviin koulutuspäiviin?" },
+  { key: "open",    q: "Vapaa palaute tai kehitysidea" },
+];
+
+/* ------------------------------------------------------------------ *
+ * State
+ * ------------------------------------------------------------------ */
+let forms = load();        // array of saved form objects
+let current = blankForm(); // form being entered/edited
+let editingId = null;      // id of form being edited, or null for a new one
+let cursor = "att";        // keyboard cursor: 'att' | 'r0'..'r6' | 'rec' | null
+
+function blankForm() {
+  return {
+    id: null,
+    attendance: null,
+    ratings: Array(RATING_ITEMS.length).fill(null),
+    recommend: null,
+    free: { best: "", improve: "", topics: "", open: "" },
+    name: "",
+    phone: "",
+  };
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+function persist() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
+  updateCount();
+}
+function updateCount() {
+  document.getElementById("count").textContent = forms.length + " tallennettu";
+}
+
+/* ------------------------------------------------------------------ *
+ * Free-text suggestion engine (no AI — fuzzy bigram similarity)
+ * ------------------------------------------------------------------ */
+function norm(s) { return (s || "").toLowerCase().trim().replace(/\s+/g, " "); }
+function bigrams(s) {
+  s = norm(s).replace(/\s/g, "");
+  const out = [];
+  for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+  return out;
+}
+function dice(a, b) {
+  const A = bigrams(a), B = bigrams(b);
+  if (!A.length || !B.length) return norm(a) === norm(b) ? 1 : 0;
+  const counts = {};
+  A.forEach(g => counts[g] = (counts[g] || 0) + 1);
+  let inter = 0;
+  B.forEach(g => { if (counts[g] > 0) { inter++; counts[g]--; } });
+  return (2 * inter) / (A.length + B.length);
+}
+// Distinct prior answers for a question, with frequency, sorted by count.
+function distinctAnswers(key) {
+  const map = new Map();
+  forms.forEach(f => {
+    const t = (f.free[key] || "").trim();
+    if (!t) return;
+    map.set(t, (map.get(t) || 0) + 1);
+  });
+  return [...map.entries()]
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count);
+}
+// Suggestions for the current input: substring + fuzzy match, ranked.
+function suggestionsFor(key, input) {
+  const all = distinctAnswers(key);
+  const q = norm(input);
+  if (!q) return all.slice(0, 6);                    // empty input → most common
+  return all
+    .map(a => {
+      const sub = norm(a.text).includes(q) ? 0.5 : 0; // substring boost
+      return { ...a, score: dice(q, a.text) + sub };
+    })
+    .filter(a => a.score > 0.2)
+    .sort((a, b) => b.score - a.score || b.count - a.count)
+    .slice(0, 6);
+}
+
+/* ------------------------------------------------------------------ *
+ * Entry view rendering
+ * ------------------------------------------------------------------ */
+const entryEl = document.getElementById("entry");
+
+function renderEntry() {
+  const formNo = editingId !== null
+    ? `<div class="form-no editing">Muokataan lomaketta #${forms.findIndex(f => f.id === editingId) + 1}</div>`
+    : `<div class="form-no">Lomake #${forms.length + 1}</div>`;
+
+  entryEl.innerHTML =
+    formNo +
+    attendanceHTML() +
+    ratingHTML() +
+    recommendHTML() +
+    freetextHTML() +
+    raffleHTML() +
+    saveRowHTML();
+
+  bindEntry();
+  refreshCursor();
+}
+
+function attendanceHTML() {
+  const opts = ATTENDANCE.map((a, i) => `
+    <button class="choice att ${current.attendance === a.v ? "sel" : ""}" data-v="${a.v}">
+      <span class="key">${i + 1}</span>${a.label}</button>`).join("");
+  return `<fieldset><legend>Osallistuin</legend><div class="choices">${opts}</div></fieldset>`;
+}
+
+function ratingHTML() {
+  let rows = `<div class="grid-row head">
+    <div class="glabel">Arvioitava asia</div>
+    ${[1,2,3,4,5].map(n => `<div class="gcell head-cell">${n}</div>`).join("")}
+    <div class="gcell head-cell">–</div></div>`;
+  RATING_ITEMS.forEach((label, r) => {
+    const cells = [1,2,3,4,5].map(n =>
+      `<div class="gcell ${current.ratings[r] === n ? "on" : ""}" data-row="${r}" data-val="${n}">${current.ratings[r] === n ? n : ""}</div>`
+    ).join("");
+    const skip = `<div class="gcell skip" data-row="${r}" data-val="0" title="Ohita">–</div>`;
+    rows += `<div class="grid-row" data-rrow="${r}"><div class="glabel">${label}</div>${cells}${skip}</div>`;
+  });
+  return `<fieldset>
+    <legend>Arviointi <span class="hint">— näppäimet 1–5, 0 ohittaa</span></legend>
+    <div class="scale-legend">${SCALE}</div>
+    <div class="grid">${rows}</div>
+  </fieldset>`;
+}
+
+function recommendHTML() {
+  const opts = RECOMMEND.map((r, i) => `
+    <button class="choice rec ${current.recommend === r.v ? "sel" : ""}" data-v="${r.v}">
+      <span class="key">${i + 1}</span>${r.label}</button>`).join("");
+  return `<fieldset><legend>Suosittelisitko koulutuspäiviä kollegalle?</legend>
+    <div class="choices">${opts}</div></fieldset>`;
+}
+
+function freetextHTML() {
+  return `<fieldset><legend>Avoimet vastaukset <span class="hint">— ehdotukset auttavat ryhmittelyssä</span></legend>` +
+    FREETEXT.map(ft => `
+      <div class="ftblock" data-ftkey="${ft.key}">
+        <label class="field-label" for="ft-${ft.key}">${ft.q}</label>
+        <textarea id="ft-${ft.key}" data-ftkey="${ft.key}" rows="2">${escapeHtml(current.free[ft.key])}</textarea>
+      </div>`).join("") +
+    `</fieldset>`;
+}
+
+function raffleHTML() {
+  return `<fieldset><legend>Arvonta <span class="hint">— vapaaehtoinen</span></legend>
+    <div class="raffle">
+      <div><label class="field-label" for="r-name">Nimi</label>
+        <input id="r-name" type="text" value="${escapeHtml(current.name)}"></div>
+      <div><label class="field-label" for="r-phone">Puhelinnumero</label>
+        <input id="r-phone" type="text" value="${escapeHtml(current.phone)}"></div>
+    </div></fieldset>`;
+}
+
+function saveRowHTML() {
+  const cancel = editingId !== null
+    ? `<button id="cancelBtn" class="ghost">Peruuta muokkaus</button>` : "";
+  const saveLabel = editingId !== null ? "Tallenna muutokset" : "Tallenna ja seuraava";
+  return `<div class="save-row">
+    <span class="hint">Vinkki: Ctrl + Enter tallentaa</span>
+    ${cancel}
+    <button id="saveBtn" class="primary">${saveLabel}</button>
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ------------------------------------------------------------------ *
+ * Entry interactions
+ * ------------------------------------------------------------------ */
+function bindEntry() {
+  entryEl.querySelectorAll(".att").forEach(b =>
+    b.onclick = () => { current.attendance = b.dataset.v; cursor = "r0"; renderEntry(); });
+
+  entryEl.querySelectorAll(".gcell[data-row]").forEach(c =>
+    c.onclick = () => setRating(+c.dataset.row, +c.dataset.val));
+
+  entryEl.querySelectorAll(".rec").forEach(b =>
+    b.onclick = () => { current.recommend = b.dataset.v; cursor = null; focusFirstText(); renderEntry(); });
+
+  FREETEXT.forEach(ft => {
+    const ta = entryEl.querySelector(`#ft-${ft.key}`);
+    ta.addEventListener("input", () => { current.free[ft.key] = ta.value; showSuggest(ft.key, ta); });
+    ta.addEventListener("focus", () => { cursor = null; refreshCursor(); showSuggest(ft.key, ta); });
+    ta.addEventListener("blur", () => setTimeout(() => hideSuggest(ft.key), 150));
+    ta.addEventListener("keydown", e => suggestKeydown(e, ft.key, ta));
+  });
+
+  entryEl.querySelector("#r-name").addEventListener("input", e => current.name = e.target.value);
+  entryEl.querySelector("#r-phone").addEventListener("input", e => current.phone = e.target.value);
+
+  entryEl.querySelector("#saveBtn").onclick = saveForm;
+  const cb = entryEl.querySelector("#cancelBtn");
+  if (cb) cb.onclick = cancelEdit;
+}
+
+function setRating(row, val) {
+  current.ratings[row] = val === 0 ? null : val;
+  cursor = row < RATING_ITEMS.length - 1 ? "r" + (row + 1) : "rec";
+  renderEntry();
+}
+
+function refreshCursor() {
+  entryEl.querySelectorAll(".grid-row").forEach(r => r.classList.remove("cursor"));
+  entryEl.querySelectorAll(".att, .rec").forEach(b => b.style.outline = "");
+  if (cursor === "att") {
+    entryEl.querySelectorAll(".att").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
+  } else if (cursor && cursor.startsWith("r") && cursor !== "rec") {
+    const row = +cursor.slice(1);
+    const el = entryEl.querySelector(`.grid-row[data-rrow="${row}"]`);
+    if (el) el.classList.add("cursor");
+  } else if (cursor === "rec") {
+    entryEl.querySelectorAll(".rec").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
+  }
+}
+
+function focusFirstText() {
+  const ta = entryEl.querySelector(`#ft-${FREETEXT[0].key}`);
+  if (ta) ta.focus();
+}
+
+/* ---- Suggestion dropdown ---- */
+let suggestState = {}; // key -> { items, active }
+
+function showSuggest(key, ta) {
+  const items = suggestionsFor(key, ta.value);
+  hideSuggest(key);
+  if (!items.length) return;
+  suggestState[key] = { items, active: -1 };
+  const block = ta.closest(".ftblock");
+  const box = document.createElement("div");
+  box.className = "suggest";
+  box.dataset.for = key;
+  const head = ta.value.trim() ? "Samankaltaiset aiemmat vastaukset" : "Yleisimmät vastaukset";
+  box.innerHTML = `<div class="suggest-head">${head}</div>` + items.map((it, i) =>
+    `<div class="suggest-item" data-i="${i}">
+       <span>${escapeHtml(it.text)}</span><span class="freq">×${it.count}</span></div>`).join("");
+  box.querySelectorAll(".suggest-item").forEach(el =>
+    el.addEventListener("mousedown", e => { e.preventDefault(); acceptSuggest(key, ta, +el.dataset.i); }));
+  block.appendChild(box);
+}
+function hideSuggest(key) {
+  const box = entryEl.querySelector(`.suggest[data-for="${key}"]`);
+  if (box) box.remove();
+  delete suggestState[key];
+}
+function acceptSuggest(key, ta, i) {
+  const st = suggestState[key];
+  if (!st || !st.items[i]) return;
+  ta.value = st.items[i].text;
+  current.free[key] = ta.value;
+  hideSuggest(key);
+}
+function suggestKeydown(e, key, ta) {
+  const st = suggestState[key];
+  if (!st) return;
+  const box = entryEl.querySelector(`.suggest[data-for="${key}"]`);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    st.active += e.key === "ArrowDown" ? 1 : -1;
+    if (st.active < 0) st.active = st.items.length - 1;
+    if (st.active >= st.items.length) st.active = 0;
+    box.querySelectorAll(".suggest-item").forEach((el, i) =>
+      el.classList.toggle("active", i === st.active));
+  } else if (e.key === "Enter" && st.active >= 0) {
+    e.preventDefault();
+    acceptSuggest(key, ta, st.active);
+  } else if (e.key === "Escape") {
+    hideSuggest(key);
+  }
+}
+
+/* ---- Save / cancel ---- */
+function saveForm() {
+  if (editingId !== null) {
+    const idx = forms.findIndex(f => f.id === editingId);
+    if (idx !== -1) forms[idx] = { ...current, id: editingId };
+    editingId = null;
+    persist();
+    showReview();
+    return;
+  }
+  current.id = Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+  forms.push(current);
+  persist();
+  current = blankForm();
+  cursor = "att";
+  renderEntry();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function cancelEdit() {
+  editingId = null;
+  current = blankForm();
+  cursor = "att";
+  showReview();
+}
+
+/* ------------------------------------------------------------------ *
+ * Review view
+ * ------------------------------------------------------------------ */
+const reviewEl = document.getElementById("review");
+
+function renderReview() {
+  if (!forms.length) {
+    reviewEl.innerHTML = `<div class="review-empty">Ei vielä tallennettuja lomakkeita.</div>`;
+    return;
+  }
+  const items = forms.map((f, i) => {
+    const rated = f.ratings.filter(r => r != null);
+    const avg = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : "–";
+    const att = (ATTENDANCE.find(a => a.v === f.attendance) || {}).label || "—";
+    const rec = (RECOMMEND.find(r => r.v === f.recommend) || {}).label || "—";
+    const snip = f.free.best || f.free.improve || f.free.open || f.free.topics || "";
+    return `<div class="rev-item">
+      <div class="rev-no">#${i + 1}</div>
+      <div class="rev-body">
+        <div class="rev-snip">${escapeHtml(snip) || "<span class='rev-meta'>(ei avointa vastausta)</span>"}</div>
+        <div class="rev-meta">${att} · ka ${avg} · suosittelee: ${rec}</div>
+      </div>
+      <div class="rev-actions">
+        <button data-edit="${f.id}">Muokkaa</button>
+        <button class="danger" data-del="${f.id}">Poista</button>
+      </div>
+    </div>`;
+  }).join("");
+  reviewEl.innerHTML = items +
+    `<div class="danger-zone"><button class="danger" id="clearBtn">Tyhjennä kaikki</button></div>`;
+
+  reviewEl.querySelectorAll("[data-edit]").forEach(b =>
+    b.onclick = () => editForm(b.dataset.edit));
+  reviewEl.querySelectorAll("[data-del]").forEach(b =>
+    b.onclick = () => deleteForm(b.dataset.del));
+  reviewEl.querySelector("#clearBtn").onclick = clearAll;
+}
+
+function editForm(id) {
+  const f = forms.find(x => x.id === id);
+  if (!f) return;
+  current = JSON.parse(JSON.stringify(f));
+  editingId = id;
+  cursor = "att";
+  showEntry();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function deleteForm(id) {
+  if (!confirm("Poistetaanko tämä lomake?")) return;
+  forms = forms.filter(f => f.id !== id);
+  persist();
+  renderReview();
+}
+function clearAll() {
+  if (!confirm("Poistetaanko KAIKKI " + forms.length + " lomaketta? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
+  forms = [];
+  persist();
+  renderReview();
+}
+
+/* ------------------------------------------------------------------ *
+ * View switching
+ * ------------------------------------------------------------------ */
+const reviewBtn = document.getElementById("reviewBtn");
+function showEntry() {
+  reviewEl.classList.add("hidden");
+  entryEl.classList.remove("hidden");
+  reviewBtn.textContent = "Tarkastele";
+  renderEntry();
+}
+function showReview() {
+  entryEl.classList.add("hidden");
+  reviewEl.classList.remove("hidden");
+  reviewBtn.textContent = "Takaisin syöttöön";
+  renderReview();
+}
+reviewBtn.onclick = () =>
+  reviewEl.classList.contains("hidden") ? showReview() : showEntry();
+
+/* ------------------------------------------------------------------ *
+ * Global keyboard fast-path (attendance / ratings / recommend)
+ * ------------------------------------------------------------------ */
+document.addEventListener("keydown", e => {
+  // Ctrl+Enter always saves when on entry view
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !entryEl.classList.contains("hidden")) {
+    e.preventDefault(); saveForm(); return;
+  }
+  // Don't hijack number keys while typing in a text field or on review view
+  const tag = (document.activeElement || {}).tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  if (!entryEl.classList.contains("hidden") && /^[0-5]$/.test(e.key)) {
+    routeNumberKey(+e.key);
+    e.preventDefault();
+  }
+});
+
+function routeNumberKey(n) {
+  if (cursor === "att") {
+    if (n >= 1 && n <= ATTENDANCE.length) {
+      current.attendance = ATTENDANCE[n - 1].v;
+      cursor = "r0";
+      renderEntry();
+    }
+  } else if (cursor && cursor.startsWith("r") && cursor !== "rec") {
+    const row = +cursor.slice(1);
+    setRating(row, n); // n=0 skips
+  } else if (cursor === "rec") {
+    if (n >= 1 && n <= RECOMMEND.length) {
+      current.recommend = RECOMMEND[n - 1].v;
+      cursor = null;
+      focusFirstText();
+      renderEntry();
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Excel export (SheetJS) — 3 sheets
+ * ------------------------------------------------------------------ */
+function attLabel(v) { return (ATTENDANCE.find(a => a.v === v) || {}).label || ""; }
+function recLabel(v) { return (RECOMMEND.find(r => r.v === v) || {}).label || ""; }
+
+function exportExcel() {
+  if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
+  if (typeof XLSX === "undefined") {
+    alert("Excel-kirjasto ei latautunut (tarkista verkkoyhteys).");
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetResponses(), "Vastaukset");
+  XLSX.utils.book_append_sheet(wb, sheetSummary(), "Yhteenveto");
+  XLSX.utils.book_append_sheet(wb, sheetThemes(), "Avoimet teemat");
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `palaute-huippu2026-${stamp}.xlsx`);
+}
+
+// Sheet 1: raw rows, one per respondent
+function sheetResponses() {
+  const header = ["#", "Osallistui", ...RATING_ITEMS, "Suosittelisi",
+    ...FREETEXT.map(f => f.q), "Nimi", "Puhelinnumero"];
+  const rows = forms.map((f, i) => [
+    i + 1, attLabel(f.attendance),
+    ...f.ratings.map(r => r == null ? "" : r),
+    recLabel(f.recommend),
+    ...FREETEXT.map(ft => f.free[ft.key] || ""),
+    f.name || "", f.phone || "",
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws["!cols"] = header.map((h, i) => ({ wch: i === 0 ? 4 : Math.min(28, Math.max(10, h.length)) }));
+  return ws;
+}
+
+// Sheet 2: aggregate stats
+function sheetSummary() {
+  const aoa = [];
+  aoa.push(["Yhteenveto — Työhyvinvoinnin huipulla 2026"]);
+  aoa.push([`Vastauksia yhteensä: ${forms.length}`]);
+  aoa.push([]);
+
+  aoa.push(["Osallistuminen", "kpl"]);
+  ATTENDANCE.forEach(a =>
+    aoa.push([a.label, forms.filter(f => f.attendance === a.v).length]));
+  aoa.push([]);
+
+  aoa.push(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
+  RATING_ITEMS.forEach((label, r) => {
+    const vals = forms.map(f => f.ratings[r]).filter(v => v != null);
+    const counts = [1,2,3,4,5].map(n => forms.filter(f => f.ratings[r] === n).length);
+    const avg = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "";
+    aoa.push([label, ...counts, vals.length, avg]);
+  });
+  aoa.push([]);
+
+  aoa.push(["Suosittelisi kollegalle", "kpl"]);
+  RECOMMEND.forEach(r =>
+    aoa.push([r.label, forms.filter(f => f.recommend === r.v).length]));
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 34 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 11 }, { wch: 10 }];
+  return ws;
+}
+
+// Sheet 3: grouped free-text answers with counts
+function sheetThemes() {
+  const aoa = [["Avoimet teemat — ryhmitellyt vastaukset"], []];
+  FREETEXT.forEach(ft => {
+    aoa.push([ft.q, "kpl"]);
+    const groups = distinctAnswers(ft.key);
+    if (!groups.length) aoa.push(["(ei vastauksia)", ""]);
+    else groups.forEach(g => aoa.push([g.text, g.count]));
+    aoa.push([]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 60 }, { wch: 6 }];
+  return ws;
+}
+
+document.getElementById("exportBtn").onclick = exportExcel;
+
+/* ------------------------------------------------------------------ *
+ * Boot
+ * ------------------------------------------------------------------ */
+updateCount();
+renderEntry();
+</script>
+</body>
+</html>
