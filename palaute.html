@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root {
     --bg: #f3f4f6;
@@ -619,18 +619,79 @@ function routeNumberKey(n) {
 function attLabel(v) { return (ATTENDANCE.find(a => a.v === v) || {}).label || ""; }
 function recLabel(v) { return (RECOMMEND.find(r => r.v === v) || {}).label || ""; }
 
-function exportExcel() {
+async function exportExcel() {
   if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
-  if (typeof XLSX === "undefined") {
+  if (typeof ExcelJS === "undefined") {
     alert("Excel-kirjasto ei latautunut (tarkista verkkoyhteys).");
     return;
   }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheetResponses(), "Vastaukset");
-  XLSX.utils.book_append_sheet(wb, sheetSummary(), "Yhteenveto");
-  XLSX.utils.book_append_sheet(wb, sheetThemes(), "Avoimet teemat");
+  const wb = new ExcelJS.Workbook();
+  buildSheet(wb, "Vastaukset", sheetResponses());
+  buildSheet(wb, "Yhteenveto", sheetSummary());
+  buildSheet(wb, "Avoimet teemat", sheetThemes());
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `palaute-huippu2026-${stamp}.xlsx`);
+  const buf = await wb.xlsx.writeBuffer();
+  downloadBlob(buf, `palaute-huippu2026-${stamp}.xlsx`);
+}
+
+/* ---- Excel styling palette + helpers (one teal accent, light borders) ---- */
+const XL = {
+  teal: "FF0D9488",        // header fill
+  tealDark: "FF0F766E",    // section / title text
+  tealTint: "FFE6FFFA",    // section fill
+  zebra: "FFF6F8FA",       // alternating row fill
+  border: { style: "thin", color: { argb: "FFD9DEE5" } },
+  headerFont: { bold: true, color: { argb: "FFFFFFFF" } },
+};
+XL.allBorders = { top: XL.border, left: XL.border, bottom: XL.border, right: XL.border };
+
+function fillCell(cell, argb) {
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+}
+function styleHeaderRow(ws, rowNum, cols) {
+  const row = ws.getRow(rowNum);
+  row.height = 22;
+  for (let c = 1; c <= cols; c++) {
+    const cell = row.getCell(c);
+    cell.font = XL.headerFont;
+    fillCell(cell, XL.teal);
+    cell.alignment = { vertical: "middle", horizontal: c === 1 ? "left" : "center" };
+  }
+}
+function styleSectionRow(ws, rowNum, cols) {
+  for (let c = 1; c <= cols; c++) {
+    const cell = ws.getRow(rowNum).getCell(c);
+    cell.font = { bold: true, color: { argb: XL.tealDark } };
+    fillCell(cell, XL.tealTint);
+  }
+}
+function bordersFor(ws, r1, r2, c1, c2) {
+  for (let r = r1; r <= r2; r++)
+    for (let c = c1; c <= c2; c++) ws.getRow(r).getCell(c).border = XL.allBorders;
+}
+function centerCells(ws, r1, r2, cols) {
+  for (let r = r1; r <= r2; r++)
+    cols.forEach(c => ws.getRow(r).getCell(c).alignment = { horizontal: "center" });
+}
+
+// Turn a {aoa, widths, style} descriptor into a styled ExcelJS worksheet.
+function buildSheet(wb, name, { aoa, widths, style }) {
+  const ws = wb.addWorksheet(name);
+  aoa.forEach(row => ws.addRow(row));
+  if (widths) widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  if (style) style(ws);
+  return ws;
+}
+
+function downloadBlob(buf, filename) {
+  const blob = new Blob([buf], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 // Sheet 1: raw rows, one per respondent
@@ -644,54 +705,94 @@ function sheetResponses() {
     ...FREETEXT.map(ft => f.free[ft.key] || ""),
     f.name || "", f.phone || "",
   ]);
-  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-  ws["!cols"] = header.map((h, i) => ({ wch: i === 0 ? 4 : Math.min(28, Math.max(10, h.length)) }));
-  return ws;
+  const cols = header.length;
+  const widths = header.map((h, i) => i === 0 ? 5 : Math.min(28, Math.max(10, h.length)));
+  const aoa = [header, ...rows];
+  const numCols = [1, 3, 4, 5, 6, 7, 8, 9]; // # + the seven rating columns
+  const style = (ws) => {
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    styleHeaderRow(ws, 1, cols);
+    bordersFor(ws, 1, aoa.length, 1, cols);
+    for (let r = 2; r <= aoa.length; r++) {
+      if (r % 2 === 1) for (let c = 1; c <= cols; c++) fillCell(ws.getRow(r).getCell(c), XL.zebra);
+    }
+    centerCells(ws, 2, aoa.length, numCols);
+  };
+  return { aoa, widths, style };
 }
 
 // Sheet 2: aggregate stats
 function sheetSummary() {
   const aoa = [];
-  aoa.push(["Yhteenveto — Työhyvinvoinnin huipulla 2026"]);
-  aoa.push([`Vastauksia yhteensä: ${forms.length}`]);
-  aoa.push([]);
-
-  aoa.push(["Osallistuminen", "kpl"]);
-  ATTENDANCE.forEach(a =>
-    aoa.push([a.label, forms.filter(f => f.attendance === a.v).length]));
-  aoa.push([]);
-
-  aoa.push(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
-  RATING_ITEMS.forEach((label, r) => {
-    const vals = forms.map(f => f.ratings[r]).filter(v => v != null);
-    const counts = [1,2,3,4,5].map(n => forms.filter(f => f.ratings[r] === n).length);
+  let r = 0;
+  const push = (row) => { aoa.push(row); return ++r; };
+  const titleRow = push(["Yhteenveto — Työhyvinvoinnin huipulla 2026"]);
+  const subRow = push([`Vastauksia yhteensä: ${forms.length}`]);
+  push([]);
+  const osalRow = push(["Osallistuminen", "kpl"]);
+  ATTENDANCE.forEach(a => push([a.label, forms.filter(f => f.attendance === a.v).length]));
+  push([]);
+  const arvHeader = push(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
+  const arvFirst = r + 1;
+  RATING_ITEMS.forEach((label, i) => {
+    const vals = forms.map(f => f.ratings[i]).filter(v => v != null);
+    const counts = [1,2,3,4,5].map(n => forms.filter(f => f.ratings[i] === n).length);
     const avg = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "";
-    aoa.push([label, ...counts, vals.length, avg]);
+    push([label, ...counts, vals.length, avg]);
   });
-  aoa.push([]);
+  const arvLast = r;
+  push([]);
+  const suosRow = push(["Suosittelisi kollegalle", "kpl"]);
+  RECOMMEND.forEach(rc => push([rc.label, forms.filter(f => f.recommend === rc.v).length]));
 
-  aoa.push(["Suosittelisi kollegalle", "kpl"]);
-  RECOMMEND.forEach(r =>
-    aoa.push([r.label, forms.filter(f => f.recommend === r.v).length]));
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 34 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 11 }, { wch: 10 }];
-  return ws;
+  const style = (ws) => {
+    ws.getCell(titleRow, 1).font = { bold: true, size: 14, color: { argb: XL.tealDark } };
+    ws.getCell(subRow, 1).font = { italic: true, color: { argb: "FF6B7280" } };
+    styleSectionRow(ws, osalRow, 2);
+    styleSectionRow(ws, suosRow, 2);
+    styleHeaderRow(ws, arvHeader, 8);
+    bordersFor(ws, arvHeader, arvLast, 1, 8);
+    centerCells(ws, arvFirst, arvLast, [2, 3, 4, 5, 6, 7, 8]);
+    for (let rr = arvFirst; rr <= arvLast; rr++) ws.getCell(rr, 8).numFmt = "0.0";
+    // Red→amber→green colour scale on the average column only
+    ws.addConditionalFormatting({
+      ref: `H${arvFirst}:H${arvLast}`,
+      rules: [{
+        type: "colorScale",
+        cfvo: [{ type: "num", value: 1 }, { type: "num", value: 3 }, { type: "num", value: 5 }],
+        color: [{ argb: "FFF8696B" }, { argb: "FFFFEB84" }, { argb: "FF63BE7B" }],
+      }],
+    });
+  };
+  return { aoa, widths: [34, 7, 7, 7, 7, 7, 12, 11], style };
 }
 
 // Sheet 3: grouped free-text answers with counts
 function sheetThemes() {
-  const aoa = [["Avoimet teemat — ryhmitellyt vastaukset"], []];
+  const aoa = [];
+  let r = 0;
+  const push = (row) => { aoa.push(row); return ++r; };
+  const titleRow = push(["Avoimet teemat — ryhmitellyt vastaukset"]);
+  push([]);
+  const blocks = [];
   FREETEXT.forEach(ft => {
-    aoa.push([ft.q, "kpl"]);
+    const hr = push([ft.q, "kpl"]);
     const groups = distinctAnswers(ft.key);
-    if (!groups.length) aoa.push(["(ei vastauksia)", ""]);
-    else groups.forEach(g => aoa.push([g.text, g.count]));
-    aoa.push([]);
+    if (!groups.length) push(["(ei vastauksia)", ""]);
+    else groups.forEach(g => push([g.text, g.count]));
+    blocks.push({ hr, last: r });
+    push([]);
   });
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 60 }, { wch: 6 }];
-  return ws;
+  const style = (ws) => {
+    ws.getCell(titleRow, 1).font = { bold: true, size: 14, color: { argb: XL.tealDark } };
+    ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(2).alignment = { horizontal: "center", vertical: "top" };
+    blocks.forEach(b => {
+      styleSectionRow(ws, b.hr, 2);
+      bordersFor(ws, b.hr, b.last, 1, 2);
+    });
+  };
+  return { aoa, widths: [60, 8], style };
 }
 
 document.getElementById("exportBtn").onclick = exportExcel;
