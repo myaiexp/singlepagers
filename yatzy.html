@@ -1234,20 +1234,11 @@
             const sorted = [...diceValues].sort((a, b) => a - b);
             const counts = {};
             diceValues.forEach(d => counts[d] = (counts[d] || 0) + 1);
+            const sumFace = n => diceValues.filter(d => d === n).reduce((a, b) => a + b, 0);
+            const upperFace = { ones: 1, twos: 2, threes: 3, fours: 4, fives: 5, sixes: 6 }[categoryId];
+            if (upperFace) return sumFace(upperFace);
 
             switch(categoryId) {
-                case 'ones':
-                    return diceValues.filter(d => d === 1).reduce((a, b) => a + b, 0);
-                case 'twos':
-                    return diceValues.filter(d => d === 2).reduce((a, b) => a + b, 0);
-                case 'threes':
-                    return diceValues.filter(d => d === 3).reduce((a, b) => a + b, 0);
-                case 'fours':
-                    return diceValues.filter(d => d === 4).reduce((a, b) => a + b, 0);
-                case 'fives':
-                    return diceValues.filter(d => d === 5).reduce((a, b) => a + b, 0);
-                case 'sixes':
-                    return diceValues.filter(d => d === 6).reduce((a, b) => a + b, 0);
                 case 'onePair':
                     const pairs = Object.entries(counts).filter(([_, count]) => count >= 2).map(([val, _]) => parseInt(val));
                     return pairs.length > 0 ? Math.max(...pairs) * 2 : 0;
