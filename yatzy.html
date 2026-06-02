@@ -818,7 +818,6 @@
         let player1Scores = JSON.parse(JSON.stringify(scoreCategories));
         let player2Scores = JSON.parse(JSON.stringify(scoreCategories));
 
-        // Initialize game
         function init() {
             loadPlayerNames();
             setupDiceListeners();
@@ -1020,7 +1019,6 @@
             }
         }
 
-        // Setup dice click listeners
         function setupDiceListeners() {
             const dice = document.querySelectorAll('.die');
             dice.forEach((die, index) => {
@@ -1028,14 +1026,12 @@
             });
         }
 
-        // Toggle keeping a die
         function toggleKeepDie(index) {
             if (!hasRolled || rollsRemaining === 3) return;
             keptDice[index] = !keptDice[index];
             updateDiceDisplay();
         }
 
-        // Roll dice
         function rollDice() {
             if (rollsRemaining === 0) return;
 
@@ -1071,7 +1067,6 @@
             }, 500);
         }
 
-        // Update dice display
         function updateDiceDisplay() {
             const dice = document.querySelectorAll('.die');
             dice.forEach((die, index) => {
@@ -1084,13 +1079,11 @@
             });
         }
 
-        // Get die face (dots)
         function getDieFace(value) {
             const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
             return faces[value - 1];
         }
 
-        // Update UI
         function updateUI() {
             const currentPlayerName = currentPlayer === 1 ? playerNames.player1 : playerNames.player2;
             document.getElementById('currentPlayer').textContent = `${currentPlayerName}'s Turn`;
@@ -1104,7 +1097,6 @@
             document.getElementById('scorecard2').classList.toggle('active', currentPlayer === 2);
         }
 
-        // Enable scoring
         function enableScoring() {
             const scores = currentPlayer === 1 ? player1Scores : player2Scores;
             renderScorecard(currentPlayer, true);
@@ -1116,7 +1108,6 @@
             }
         }
 
-        // Render scorecard
         function renderScorecard(player, enableClick = false) {
             const scores = player === 1 ? player1Scores : player2Scores;
             const container = document.getElementById(`scorecardBody${player}`);
@@ -1188,12 +1179,10 @@
             container.innerHTML = html;
         }
 
-        // Calculate upper section total
         function calculateUpperTotal(scores) {
             return scores.upper.reduce((sum, cat) => sum + (cat.value || 0), 0);
         }
 
-        // Calculate grand total
         function calculateGrandTotal(scores) {
             const upperTotal = calculateUpperTotal(scores);
             const bonus = upperTotal >= 63 ? 50 : 0;
@@ -1201,7 +1190,6 @@
             return upperTotal + bonus + lowerTotal;
         }
 
-        // Score a category
         function scoreCategory(categoryId) {
             const scores = currentPlayer === 1 ? player1Scores : player2Scores;
             const score = calculateScore(categoryId);
@@ -1242,7 +1230,6 @@
             }
         }
 
-        // Calculate score for a category
         function calculateScore(categoryId) {
             const sorted = [...diceValues].sort((a, b) => a - b);
             const counts = {};
@@ -1296,7 +1283,6 @@
             }
         }
 
-        // Next turn
         function nextTurn() {
             // Hide scoring notice
             const notice = document.getElementById('scoringNotice');
@@ -1320,14 +1306,12 @@
             rollDice();
         }
 
-        // Check if game is over
         function isGameOver() {
             const player1Complete = [...player1Scores.upper, ...player1Scores.lower].every(cat => cat.value !== null);
             const player2Complete = [...player2Scores.upper, ...player2Scores.lower].every(cat => cat.value !== null);
             return player1Complete && player2Complete;
         }
 
-        // End game
         function endGame() {
             const p1Total = calculateGrandTotal(player1Scores);
             const p2Total = calculateGrandTotal(player2Scores);
@@ -1363,7 +1347,6 @@
             createConfetti();
         }
 
-        // Create confetti effect
         function createConfetti() {
             const colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b'];
             for (let i = 0; i < 50; i++) {
@@ -1397,7 +1380,6 @@
             });
         }
         
-        // New game
         function newGame() {
             currentPlayer = 1;
             rollsRemaining = 3;
