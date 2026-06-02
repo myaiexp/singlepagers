@@ -774,9 +774,10 @@
     </div>
 
     <script>
-        // Reset localStorage on every page load to ensure fresh start on refresh
-        localStorage.removeItem('yatzy_playerNames');
-        localStorage.removeItem('yatzy_statistics');
+        // Game state (dice/scores) lives in JS variables and resets naturally on
+        // reload via init(). Player names and statistics persist in localStorage
+        // (keys: yatzy_playerNames, yatzy_statistics) and must NOT be cleared here —
+        // stats reset is an explicit user action in confirmResetStats().
 
         // Game State
         let currentPlayer = 1;

@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Browser smoke check for audit #1372: yatzy.html must not wipe localStorage on load. -->
+<!-- Serve this directory over HTTP (same origin as yatzy.html), e.g. helm-preview, then open test/smoke.html. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>yatzy load-persistence smoke</title></head>
+<body>
+<h1>Yatzy persistence smoke test</h1>
+<pre id="out">running…</pre>
+<script>
+  const NAMES = JSON.stringify({ player1: 'Alice', player2: 'Bob' });
+  const STATS = JSON.stringify({ Alice: { gamesPlayed: 3, wins: 2 } });
+  localStorage.setItem('yatzy_playerNames', NAMES);
+  localStorage.setItem('yatzy_statistics', STATS);
+
+  const iframe = document.createElement('iframe');
+  iframe.src = '../yatzy.html';            // same origin -> shares this localStorage
+  iframe.style.cssText = 'position:absolute;left:-9999px;width:0;height:0;border:0';
+  iframe.addEventListener('load', () => {
+    const names = localStorage.getItem('yatzy_playerNames');
+    const stats = localStorage.getItem('yatzy_statistics');
+    const pass = names === NAMES && stats === STATS;
+    document.getElementById('out').textContent =
+      (pass ? 'PASS' : 'FAIL') +
+      '\n  yatzy_playerNames: ' + (names === NAMES ? 'kept' : 'LOST') +
+      '\n  yatzy_statistics:  ' + (stats === STATS ? 'kept' : 'LOST');
+    document.body.style.background = pass ? '#0a3' : '#a00';
+  });
+  document.body.appendChild(iframe);
+</script>
+</body>
+</html>
