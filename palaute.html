@@ -510,8 +510,8 @@ function renderReview() {
   const items = forms.map((f, i) => {
     const rated = f.ratings.filter(r => r != null);
     const avg = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : "–";
-    const att = (ATTENDANCE.find(a => a.v === f.attendance) || {}).label || "—";
-    const rec = (RECOMMEND.find(r => r.v === f.recommend) || {}).label || "—";
+    const att = attLabel(f.attendance) || "—";
+    const rec = recLabel(f.recommend) || "—";
     const snip = f.free.best || f.free.improve || f.free.open || f.free.topics || "";
     return `<div class="rev-item">
       <div class="rev-no">#${i + 1}</div>
