@@ -1237,32 +1237,39 @@
             if (upperFace) return sumFace(upperFace);
 
             switch(categoryId) {
-                case 'onePair':
+                case 'onePair': {
                     const pairs = Object.entries(counts).filter(([_, count]) => count >= 2).map(([val, _]) => parseInt(val));
                     return pairs.length > 0 ? Math.max(...pairs) * 2 : 0;
-                case 'twoPairs':
+                }
+                case 'twoPairs': {
                     const pairsArray = Object.entries(counts).filter(([_, count]) => count >= 2).map(([val, _]) => parseInt(val));
                     if (pairsArray.length >= 2) {
                         pairsArray.sort((a, b) => b - a);
                         return pairsArray[0] * 2 + pairsArray[1] * 2;
                     }
                     return 0;
-                case 'threeOfKind':
+                }
+                case 'threeOfKind': {
                     const threeValue = Object.entries(counts).find(([_, count]) => count >= 3);
                     return threeValue ? parseInt(threeValue[0]) * 3 : 0;
-                case 'fourOfKind':
+                }
+                case 'fourOfKind': {
                     const fourValue = Object.entries(counts).find(([_, count]) => count >= 4);
                     return fourValue ? parseInt(fourValue[0]) * 4 : 0;
-                case 'smallStraight':
+                }
+                case 'smallStraight': {
                     const small = [1, 2, 3, 4, 5];
                     return small.every(v => sorted.includes(v)) ? 15 : 0;
-                case 'largeStraight':
+                }
+                case 'largeStraight': {
                     const large = [2, 3, 4, 5, 6];
                     return large.every(v => sorted.includes(v)) ? 20 : 0;
-                case 'fullHouse':
+                }
+                case 'fullHouse': {
                     const hasThree = Object.values(counts).some(c => c === 3);
                     const hasTwo = Object.values(counts).some(c => c === 2);
                     return (hasThree && hasTwo) ? diceValues.reduce((a, b) => a + b, 0) : 0;
+                }
                 case 'chance':
                     return diceValues.reduce((a, b) => a + b, 0);
                 case 'yatzy':
