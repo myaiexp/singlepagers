@@ -708,7 +708,11 @@ function sheetResponses() {
   const cols = header.length;
   const widths = header.map((h, i) => i === 0 ? 5 : Math.min(28, Math.max(10, h.length)));
   const aoa = [header, ...rows];
-  const numCols = [1, 3, 4, 5, 6, 7, 8, 9]; // # + the seven rating columns
+  // Columns to centre: "#" plus the rating block. Header layout is
+  // [#, Osallistui, ...RATING_ITEMS, Suosittelisi, ...], so ratings start at col 3.
+  const INDEX_COL = 1;
+  const RATING_COL_START = 3; // first rating column, after "#" and "Osallistui"
+  const numCols = [INDEX_COL, ...RATING_ITEMS.map((_, i) => RATING_COL_START + i)];
   const style = (ws) => {
     ws.views = [{ state: "frozen", ySplit: 1 }];
     styleHeaderRow(ws, 1, cols);
