@@ -200,7 +200,7 @@ const FREETEXT = [
 let forms = load();        // array of saved form objects
 let current = blankForm(); // form being entered/edited
 let editingId = null;      // id of form being edited, or null for a new one
-let cursor = "att";        // keyboard cursor: 'att' | 'r0'..'r6' | 'rec' | null
+let cursor = { sec: "att" }; // keyboard cursor: {sec:"att"} | {sec:"rating",row:0..6} | {sec:"rec"} | null
 
 function blankForm() {
   return {
@@ -372,7 +372,7 @@ function escapeHtml(s) {
  * ------------------------------------------------------------------ */
 function bindEntry() {
   entryEl.querySelectorAll(".att").forEach(b =>
-    b.onclick = () => { current.attendance = b.dataset.v; cursor = "r0"; renderEntry(); });
+    b.onclick = () => { current.attendance = b.dataset.v; cursor = { sec: "rating", row: 0 }; renderEntry(); });
 
   entryEl.querySelectorAll(".gcell[data-row]").forEach(c =>
     c.onclick = () => setRating(+c.dataset.row, +c.dataset.val));
@@ -398,20 +398,19 @@ function bindEntry() {
 
 function setRating(row, val) {
   current.ratings[row] = val === 0 ? null : val;
-  cursor = row < RATING_ITEMS.length - 1 ? "r" + (row + 1) : "rec";
+  cursor = row < RATING_ITEMS.length - 1 ? { sec: "rating", row: row + 1 } : { sec: "rec" };
   renderEntry();
 }
 
 function refreshCursor() {
   entryEl.querySelectorAll(".grid-row").forEach(r => r.classList.remove("cursor"));
   entryEl.querySelectorAll(".att, .rec").forEach(b => b.style.outline = "");
-  if (cursor === "att") {
+  if (cursor?.sec === "att") {
     entryEl.querySelectorAll(".att").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
-  } else if (cursor && cursor.startsWith("r") && cursor !== "rec") {
-    const row = +cursor.slice(1);
-    const el = entryEl.querySelector(`.grid-row[data-rrow="${row}"]`);
+  } else if (cursor?.sec === "rating") {
+    const el = entryEl.querySelector(`.grid-row[data-rrow="${cursor.row}"]`);
     if (el) el.classList.add("cursor");
-  } else if (cursor === "rec") {
+  } else if (cursor?.sec === "rec") {
     entryEl.querySelectorAll(".rec").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
   }
 }
@@ -486,14 +485,14 @@ function saveForm() {
   forms.push(current);
   persist();
   current = blankForm();
-  cursor = "att";
+  cursor = { sec: "att" };
   renderEntry();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function cancelEdit() {
   editingId = null;
   current = blankForm();
-  cursor = "att";
+  cursor = { sec: "att" };
   showReview();
 }
 
@@ -540,7 +539,7 @@ function editForm(id) {
   if (!f) return;
   current = JSON.parse(JSON.stringify(f));
   editingId = id;
-  cursor = "att";
+  cursor = { sec: "att" };
   showEntry();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -594,16 +593,15 @@ document.addEventListener("keydown", e => {
 });
 
 function routeNumberKey(n) {
-  if (cursor === "att") {
+  if (cursor?.sec === "att") {
     if (n >= 1 && n <= ATTENDANCE.length) {
       current.attendance = ATTENDANCE[n - 1].v;
-      cursor = "r0";
+      cursor = { sec: "rating", row: 0 };
       renderEntry();
     }
-  } else if (cursor && cursor.startsWith("r") && cursor !== "rec") {
-    const row = +cursor.slice(1);
-    setRating(row, n); // n=0 skips
-  } else if (cursor === "rec") {
+  } else if (cursor?.sec === "rating") {
+    setRating(cursor.row, n); // n=0 skips
+  } else if (cursor?.sec === "rec") {
     if (n >= 1 && n <= RECOMMEND.length) {
       current.recommend = RECOMMEND[n - 1].v;
       cursor = null;
