@@ -1055,10 +1055,10 @@
                 // Remove rolling animation
                 dice.forEach(die => die.classList.remove('rolling'));
 
-                // Update scorecard to show potential scores after each roll
-                renderScorecard(currentPlayer);
-
-                // Enable scoring after any roll (not just after all 3 rolls)
+                // Re-render the scorecard once. enableScoring() renders it with
+                // updated potential scores AND clickable categories, and runs after
+                // every roll (rollsRemaining is always < 3 here), so a separate
+                // prior renderScorecard() call would just be redundant DOM work.
                 if (rollsRemaining < 3) {
                     enableScoring();
                 }
