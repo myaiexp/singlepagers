@@ -753,8 +753,8 @@
                 <input type="text" id="player2Name" placeholder="Enter Player 2's name" maxlength="20" onfocus="this.select()">
             </div>
             <div class="btn-group">
-                <button class="btn" onclick="savePlayerNames()">Save Names</button>
-                <button class="btn btn-secondary" onclick="closePlayerNamesModal()">Cancel</button>
+                <button class="btn" onclick="applyPlayerNameEdit()">Save Names</button>
+                <button class="btn btn-secondary" onclick="closeModal('playerNamesModal')">Cancel</button>
             </div>
         </div>
     </div>
@@ -765,7 +765,7 @@
             <h2>📊 Game Statistics</h2>
             <div id="statsContent"></div>
             <div class="btn-group">
-                <button class="btn btn-secondary" onclick="closeStatsModal()">Close</button>
+                <button class="btn btn-secondary" onclick="closeModal('statsModal')">Close</button>
                 <button class="btn btn-danger" onclick="confirmResetStats()">Reset All Stats</button>
             </div>
         </div>
@@ -784,6 +784,10 @@
         let keptDice = [false, false, false, false, false];
         let hasRolled = false;
         let currentGameRolls = 0; // Track rolls in current game
+
+        // Pending confetti timers (spawn + per-piece removal), cleared on newGame
+        // so a quick "Play Again" can't leak divs from the previous game's burst.
+        let confettiTimers = [];
 
         // Player Names
         let playerNames = {
@@ -816,12 +820,20 @@
         let player1Scores = JSON.parse(JSON.stringify(scoreCategories));
         let player2Scores = JSON.parse(JSON.stringify(scoreCategories));
 
+        // Escape user-controlled text before it enters an innerHTML template.
+        // Player names come from a free-text input and persist in localStorage,
+        // so a name like <img src=x onerror=…> must not be interpolated raw.
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c =>
+                ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
         function init() {
             loadPlayerNames();
             setupDiceListeners();
             renderScorecard(1);
             renderScorecard(2);
-            updateReferences();
+            syncReferencePanel();
             updateUI();
             rollDice();
         }
@@ -846,37 +858,40 @@
             updateUI(); // This will update the current player display
         }
 
+        function showModal(id) {
+            document.getElementById(id).classList.add('show');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('show');
+        }
+
         function showPlayerNamesModal() {
-            const modal = document.getElementById('playerNamesModal');
-            const p1Input = document.getElementById('player1Name');
-            const p2Input = document.getElementById('player2Name');
-            
-            p1Input.value = playerNames.player1;
-            p2Input.value = playerNames.player2;
-            
-            modal.classList.add('show');
-            
+            const p1El = document.getElementById('player1Name');
+            const p2El = document.getElementById('player2Name');
+
+            p1El.value = playerNames.player1;
+            p2El.value = playerNames.player2;
+
+            showModal('playerNamesModal');
+
             // Auto-focus and select the first input for easy editing
             setTimeout(() => {
-                p1Input.focus();
-                p1Input.select();
+                p1El.focus();
+                p1El.select();
             }, 100);
         }
 
-        function closePlayerNamesModal() {
-            document.getElementById('playerNamesModal').classList.remove('show');
-        }
+        function applyPlayerNameEdit() {
+            const p1Name = document.getElementById('player1Name').value.trim();
+            const p2Name = document.getElementById('player2Name').value.trim();
 
-        function savePlayerNames() {
-            const p1Input = document.getElementById('player1Name').value.trim();
-            const p2Input = document.getElementById('player2Name').value.trim();
-            
-            playerNames.player1 = p1Input || 'Player 1';
-            playerNames.player2 = p2Input || 'Player 2';
-            
+            playerNames.player1 = p1Name || 'Player 1';
+            playerNames.player2 = p2Name || 'Player 2';
+
             savePlayerNamesToStorage();
             updatePlayerNamesDisplay();
-            closePlayerNamesModal();
+            closeModal('playerNamesModal');
         }
 
         // ===== STATISTICS MANAGEMENT =====
@@ -887,6 +902,7 @@
                 gamesPlayed: 0,
                 wins: 0,
                 losses: 0,
+                draws: 0,
                 totalRolls: 0,
                 highestScore: 0,
                 totalPoints: 0,
@@ -901,45 +917,28 @@
             localStorage.setItem('yatzy_statistics', JSON.stringify(allStats));
         }
 
-        function updateGameStatistics(winner, p1Score, p2Score, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy) {
-            // Update Player 1 stats
-            const p1Stats = getPlayerStats(playerNames.player1);
-            p1Stats.gamesPlayed++;
-            p1Stats.totalRolls += currentGameRolls;
-            p1Stats.totalPoints += p1Score;
-            if (p1Score > p1Stats.highestScore) p1Stats.highestScore = p1Score;
-            if (p1Bonus) p1Stats.bonusCount++;
-            if (p1Yatzy) p1Stats.yatzysScored++;
-            if (winner === 1) {
-                p1Stats.wins++;
-            } else if (winner === 2) {
-                p1Stats.losses++;
-            }
-            savePlayerStats(playerNames.player1, p1Stats);
+        function updateOnePlayerStats(playerName, score, bonus, yatzy, didWin, didLose) {
+            const stats = getPlayerStats(playerName);
+            stats.gamesPlayed++;
+            stats.totalRolls += currentGameRolls;
+            stats.totalPoints += score;
+            if (score > stats.highestScore) stats.highestScore = score;
+            if (bonus) stats.bonusCount++;
+            if (yatzy) stats.yatzysScored++;
+            if (didWin) stats.wins++;
+            else if (didLose) stats.losses++;
+            else stats.draws = (stats.draws || 0) + 1; // tie: keep wins+losses+draws == gamesPlayed
+            savePlayerStats(playerName, stats);
+        }
 
-            // Update Player 2 stats
-            const p2Stats = getPlayerStats(playerNames.player2);
-            p2Stats.gamesPlayed++;
-            p2Stats.totalRolls += currentGameRolls;
-            p2Stats.totalPoints += p2Score;
-            if (p2Score > p2Stats.highestScore) p2Stats.highestScore = p2Score;
-            if (p2Bonus) p2Stats.bonusCount++;
-            if (p2Yatzy) p2Stats.yatzysScored++;
-            if (winner === 2) {
-                p2Stats.wins++;
-            } else if (winner === 1) {
-                p2Stats.losses++;
-            }
-            savePlayerStats(playerNames.player2, p2Stats);
+        function updateGameStatistics(winner, p1Score, p2Score, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy) {
+            updateOnePlayerStats(playerNames.player1, p1Score, p1Bonus, p1Yatzy, winner === 1, winner === 2);
+            updateOnePlayerStats(playerNames.player2, p2Score, p2Bonus, p2Yatzy, winner === 2, winner === 1);
         }
 
         function showStatsModal() {
             renderStatistics();
-            document.getElementById('statsModal').classList.add('show');
-        }
-
-        function closeStatsModal() {
-            document.getElementById('statsModal').classList.remove('show');
+            showModal('statsModal');
         }
 
         function renderStatistics() {
@@ -960,7 +959,7 @@
                 
                 html += `
                     <div class="stat-card">
-                        <h4>🎲 ${playerName}</h4>
+                        <h4>🎲 ${escapeHtml(playerName)}</h4>
                         <div class="stat-row">
                             <span class="stat-label">Games Played</span>
                             <span class="stat-value stat-highlight">${stats.gamesPlayed}</span>
@@ -972,6 +971,10 @@
                         <div class="stat-row">
                             <span class="stat-label">Losses</span>
                             <span class="stat-value" style="color: #dc3545;">${stats.losses}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Ties</span>
+                            <span class="stat-value" style="color: #6c757d;">${stats.draws || 0}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Win Rate</span>
@@ -1036,12 +1039,10 @@
             hasRolled = true;
             currentGameRolls++; // Track total rolls in game
             const dice = document.querySelectorAll('.die');
-            
-            // Add rolling animation
+
             dice.forEach(die => die.classList.add('rolling'));
 
             setTimeout(() => {
-                // Roll non-kept dice
                 for (let i = 0; i < 5; i++) {
                     if (!keptDice[i]) {
                         diceValues[i] = Math.floor(Math.random() * 6) + 1;
@@ -1051,8 +1052,7 @@
                 rollsRemaining--;
                 updateDiceDisplay();
                 updateUI();
-                
-                // Remove rolling animation
+
                 dice.forEach(die => die.classList.remove('rolling'));
 
                 // Re-render the scorecard once. enableScoring() renders it with
@@ -1096,43 +1096,44 @@
         }
 
         function enableScoring() {
-            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
             renderScorecard(currentPlayer, true);
-            
-            // Show notice that scoring will end turn
-            const notice = document.getElementById('scoringNotice');
-            if (notice) {
-                notice.classList.add('show');
-            }
+            // Notice that scoring will end the turn
+            document.getElementById('scoringNotice').classList.add('show');
+        }
+
+        // Build the score-row HTML for one section (upper or lower). Potential
+        // scores show only for the active player after a roll on unfilled rows;
+        // a row is clickable to commit when scoring is enabled. cat.id/cat.name
+        // come from the static scoreCategories config, so they are safe to inline.
+        function renderCategoryRows(categories, player, enableClick) {
+            return categories.map(cat => {
+                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
+                const potential = showPotential ? calculateScore(cat.id) : null;
+                const clickable = enableClick && cat.value === null && potential !== null;
+                const display = cat.value !== null
+                    ? cat.value
+                    : (potential !== null ? `(${potential})` : '—');
+
+                return `
+                    <div class="score-row ${cat.value !== null ? 'filled' : ''} ${clickable ? 'clickable' : ''}"
+                         data-cat-id="${cat.id}"
+                         ${clickable ? `onclick="scoreCategory('${cat.id}')"` : ''}>
+                        <div class="score-label">${cat.name}</div>
+                        <div class="score-value">${display}</div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function renderScorecard(player, enableClick = false) {
             const scores = player === 1 ? player1Scores : player2Scores;
             const container = document.getElementById(`scorecardBody${player}`);
-            
-            let html = '';
 
-            // Upper section
-            scores.upper.forEach(cat => {
-                const score = cat.value !== null ? cat.value : '—';
-                // Show potential scores after any roll if current player and category not filled
-                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
-                const potential = showPotential ? calculateScore(cat.id) : null;
-                const clickable = enableClick && cat.value === null && potential !== null;
-                
-                html += `
-                    <div class="score-row ${cat.value !== null ? 'filled' : ''} ${clickable ? 'clickable' : ''}"
-                         ${clickable ? `onclick="scoreCategory('${cat.id}')"` : ''}>
-                        <div class="score-label">${cat.name}</div>
-                        <div class="score-value">${cat.value !== null ? score : (potential !== null ? `(${potential})` : '—')}</div>
-                    </div>
-                `;
-            });
-
-            // Upper section total and bonus
             const upperTotal = calculateUpperTotal(scores);
             const bonus = upperTotal >= 63 ? 50 : 0;
-            
+            const grandTotal = calculateGrandTotal(scores);
+
+            let html = renderCategoryRows(scores.upper, player, enableClick);
             html += `<div class="section-divider"></div>`;
             html += `
                 <div class="score-row total-row">
@@ -1144,28 +1145,8 @@
                     <div class="score-value">${bonus}</div>
                 </div>
             `;
-
             html += `<div class="section-divider"></div>`;
-
-            // Lower section
-            scores.lower.forEach(cat => {
-                const score = cat.value !== null ? cat.value : '—';
-                // Show potential scores after any roll if current player and category not filled
-                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
-                const potential = showPotential ? calculateScore(cat.id) : null;
-                const clickable = enableClick && cat.value === null && potential !== null;
-                
-                html += `
-                    <div class="score-row ${cat.value !== null ? 'filled' : ''} ${clickable ? 'clickable' : ''}"
-                         ${clickable ? `onclick="scoreCategory('${cat.id}')"` : ''}>
-                        <div class="score-label">${cat.name}</div>
-                        <div class="score-value">${cat.value !== null ? score : (potential !== null ? `(${potential})` : '—')}</div>
-                    </div>
-                `;
-            });
-
-            // Grand total
-            const grandTotal = calculateGrandTotal(scores);
+            html += renderCategoryRows(scores.lower, player, enableClick);
             html += `<div class="section-divider"></div>`;
             html += `
                 <div class="score-row total-row">
@@ -1203,19 +1184,16 @@
             if (category && category.value === null) {
                 category.value = score;
                 
-                // Re-render the scorecard
                 renderScorecard(currentPlayer);
-                updateReferences();
+                syncReferencePanel();
 
-                // Add flash animation
+                // Flash the just-scored row, identified unambiguously by its category id.
                 setTimeout(() => {
-                    const rows = document.querySelectorAll(`#scorecardBody${currentPlayer} .score-row`);
-                    rows.forEach(row => {
-                        if (row.textContent.includes(category.name)) {
-                            row.classList.add('just-scored');
-                            setTimeout(() => row.classList.remove('just-scored'), 1000);
-                        }
-                    });
+                    const row = document.querySelector(`#scorecardBody${currentPlayer} [data-cat-id="${categoryId}"]`);
+                    if (row) {
+                        row.classList.add('just-scored');
+                        setTimeout(() => row.classList.remove('just-scored'), 1000);
+                    }
                 }, 100);
 
                 // Check if game is over
@@ -1250,12 +1228,13 @@
                     return 0;
                 }
                 case 'threeOfKind': {
-                    const threeValue = Object.entries(counts).find(([_, count]) => count >= 3);
-                    return threeValue ? parseInt(threeValue[0]) * 3 : 0;
+                    // Object.entries yields [faceValue, count]; take the face from [0].
+                    const threeEntry = Object.entries(counts).find(([_, count]) => count >= 3);
+                    return threeEntry ? parseInt(threeEntry[0]) * 3 : 0;
                 }
                 case 'fourOfKind': {
-                    const fourValue = Object.entries(counts).find(([_, count]) => count >= 4);
-                    return fourValue ? parseInt(fourValue[0]) * 4 : 0;
+                    const fourEntry = Object.entries(counts).find(([_, count]) => count >= 4);
+                    return fourEntry ? parseInt(fourEntry[0]) * 4 : 0;
                 }
                 case 'smallStraight': {
                     const small = [1, 2, 3, 4, 5];
@@ -1266,6 +1245,9 @@
                     return large.every(v => sorted.includes(v)) ? 20 : 0;
                 }
                 case 'fullHouse': {
+                    // Finnish Yatzy rules: a full house is exactly a triple + a pair.
+                    // Strict `=== 3`/`=== 2` means five-of-a-kind does NOT count as a
+                    // full house (and four+one doesn't either) — intentional, see test.
                     const hasThree = Object.values(counts).some(c => c === 3);
                     const hasTwo = Object.values(counts).some(c => c === 2);
                     return (hasThree && hasTwo) ? diceValues.reduce((a, b) => a + b, 0) : 0;
@@ -1280,25 +1262,20 @@
         }
 
         function nextTurn() {
-            // Hide scoring notice
-            const notice = document.getElementById('scoringNotice');
-            if (notice) {
-                notice.classList.remove('show');
-            }
-            
+            document.getElementById('scoringNotice').classList.remove('show');
+
             currentPlayer = currentPlayer === 1 ? 2 : 1;
             rollsRemaining = 3;
             keptDice = [false, false, false, false, false];
             hasRolled = false;
-            
-            // Reset dice display
+
             diceValues = [1, 2, 3, 4, 5];
             updateDiceDisplay();
             updateUI();
-            
+
             renderScorecard(1);
             renderScorecard(2);
-            updateReferences();
+            syncReferencePanel();
             rollDice();
         }
 
@@ -1325,10 +1302,10 @@
             let winnerText = '';
             if (p1Total > p2Total) {
                 winner = 1;
-                winnerText = `${playerNames.player1} Wins! 🎉<br>Score: ${p1Total} - ${p2Total}`;
+                winnerText = `${escapeHtml(playerNames.player1)} Wins! 🎉<br>Score: ${p1Total} - ${p2Total}`;
             } else if (p2Total > p1Total) {
                 winner = 2;
-                winnerText = `${playerNames.player2} Wins! 🎉<br>Score: ${p2Total} - ${p1Total}`;
+                winnerText = `${escapeHtml(playerNames.player2)} Wins! 🎉<br>Score: ${p2Total} - ${p1Total}`;
             } else {
                 winnerText = `It's a Tie! 🤝<br>Score: ${p1Total} - ${p2Total}`;
             }
@@ -1346,7 +1323,7 @@
         function createConfetti() {
             const colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b'];
             for (let i = 0; i < 50; i++) {
-                setTimeout(() => {
+                const spawn = setTimeout(() => {
                     const confetti = document.createElement('div');
                     confetti.className = 'confetti';
                     confetti.style.left = Math.random() * 100 + '%';
@@ -1354,15 +1331,26 @@
                     confetti.style.animationDelay = Math.random() * 2 + 's';
                     confetti.style.animationDuration = (Math.random() * 2 + 3) + 's';
                     document.body.appendChild(confetti);
-                    
-                    setTimeout(() => confetti.remove(), 5000);
+
+                    confettiTimers.push(setTimeout(() => confetti.remove(), 5000));
                 }, i * 50);
+                confettiTimers.push(spawn);
             }
         }
 
-        function updateReferences() {
+        // Cancel any pending confetti spawn/removal timers and remove live pieces,
+        // so a quick "Play Again" doesn't accumulate divs from the previous burst.
+        function clearConfetti() {
+            confettiTimers.forEach(clearTimeout);
+            confettiTimers = [];
+            document.querySelectorAll('.confetti').forEach(el => el.remove());
+        }
+
+        // Hide the scoring-hint reference tiles for categories the active player
+        // has already filled, showing the rest.
+        function syncReferencePanel() {
             const scores = currentPlayer === 1 ? player1Scores : player2Scores;
-            
+
             document.querySelectorAll('.reference-item[data-section]').forEach(item => {
                 const section = item.dataset.section;
                 const idx = parseInt(item.dataset.categoryIndex);
@@ -1377,6 +1365,8 @@
         }
         
         function newGame() {
+            clearConfetti();
+
             currentPlayer = 1;
             rollsRemaining = 3;
             diceValues = [1, 2, 3, 4, 5];
@@ -1388,11 +1378,11 @@
             player2Scores = JSON.parse(JSON.stringify(scoreCategories));
 
             document.getElementById('gameOver').classList.remove('show');
-            
+
             updateDiceDisplay();
             renderScorecard(1);
             renderScorecard(2);
-            updateReferences();
+            syncReferencePanel();
             updateUI();
             rollDice();
         }
