@@ -1,18 +1,19 @@
-// dice() similarity tests (audit #1517): pin the Sørensen-Dice coefficient at
+// diceSimilarity() tests (audit #1517): pin the Sørensen-Dice coefficient at
 // palaute.html and CHARACTERIZE its known short-string limitation — these are
-// behaviour-pinning tests, not a fix. The SUT is untouched.
+// behaviour-pinning tests, not a fix. (The function was renamed dice → diceSimilarity
+// in audit #11 to disambiguate from the yatzy game; behaviour is unchanged.)
 //
-// dice(a,b) builds character bigram multisets of norm(a)/norm(b) and returns
-// 2|A∩B| / (|A|+|B|). When EITHER side has no bigrams (≤1 char after
+// diceSimilarity(a,b) builds character bigram multisets of norm(a)/norm(b) and
+// returns 2|A∩B| / (|A|+|B|). When EITHER side has no bigrams (≤1 char after
 // normalization) it falls back to exact-string-equality (1 if norm-equal else 0).
 // That fallback is the part #1517 flags as uncovered, plus the quirk that two
 // strings sharing a character can still score 0 (e.g. 'a' vs 'ab').
 //
 // Same no-deps harness as palaute-labels.test.mjs: the page's real inline <script>
 // runs under node:vm against the stub DOM with ZERO changes to palaute.html. norm,
-// bigrams and dice are hoisted top-level function declarations, initialized before
-// the boot code that may throw against the partial DOM stub — so they're reachable
-// from later runInContext() calls even though boot itself is wrapped in try/catch.
+// bigrams and diceSimilarity are hoisted top-level function declarations, initialized
+// before the boot code that may throw against the partial DOM stub — so they're
+// reachable from later runInContext() calls even though boot is wrapped in try/catch.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -40,10 +41,11 @@ try {
     filename: 'palaute.html#script',
   });
 } catch {
-  // Load-time DOM-stub miss in boot — tolerated; norm/bigrams/dice are initialized.
+  // Load-time DOM-stub miss in boot — tolerated; norm/bigrams/diceSimilarity init'd.
 }
 
-const dice = (a, b) => vm.runInContext(`dice(${JSON.stringify(a)}, ${JSON.stringify(b)})`, sandbox);
+// Local alias keeps the test names terse; the SUT symbol is diceSimilarity.
+const dice = (a, b) => vm.runInContext(`diceSimilarity(${JSON.stringify(a)}, ${JSON.stringify(b)})`, sandbox);
 
 // --- the empty-bigram fallback (the uncovered branch #1517 names) ------------
 
