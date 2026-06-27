@@ -3,6 +3,13 @@
 <html lang="fi">
 <head>
 <meta charset="UTF-8">
+<!-- The only external resource is ExcelJS, loaded on demand from cdnjs (SRI-pinned)
+     for the Excel export; everything else is inline. cdnjs is whitelisted in
+     script-src; 'unsafe-inline' covers the page's inline script and style blocks;
+     no 'unsafe-eval' needed (ExcelJS's Function() calls are unreachable
+     global-detection fallbacks in modern browsers). object-src 'none' + base-uri
+     'self' add hardening. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>
 <!-- ExcelJS is loaded on demand from cdnjs (pinned by SRI) the first time the

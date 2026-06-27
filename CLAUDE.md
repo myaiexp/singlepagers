@@ -1,15 +1,14 @@
 # Singlepagers
 
-> Collection of standalone single-page game applications.
+> Collection of standalone single-page web applications.
 
 ## Key Patterns
 
-- Each game is a single self-contained HTML file
+- Each app is a single self-contained HTML file
 - No build process or external dependencies
-- All logic, styles, and markup in one file per game
+- All logic, styles, and markup in one file per app
 - Deployed to VPS via git push — HTML files copied directly to web root
-- Live at: `mase.fi/yatzy.html`
-- `porssi.html` was removed — superseded by the standalone spot-price project
+- Live at: `https://mase.fi/yatzy.html`
 
 ### Documented exception: ExcelJS in `palaute.html`
 
@@ -21,6 +20,15 @@ network dependency — only the Excel export needs to reach the CDN, and it degr
 to an alert if the load fails. When bumping the ExcelJS version, regenerate the SRI
 hash (`curl -s <url> | openssl dgst -sha512 -binary | openssl base64 -A`, or take it
 from the cdnjs package page) and update `EXCELJS_URL` + `EXCELJS_SRI` together.
+
+There is **no `package.json`** by design (see "No build process" above), so there is
+no `npm audit` / Dependabot coverage for this single CDN dependency. Check it manually
+before any event that produces an export: `npm view exceljs version` flags a newer
+release, and the [ExcelJS advisories](https://github.com/exceljs/exceljs/security)
+list known CVEs. SRI pinning already blocks a tampered CDN payload; this manual step
+covers vulnerabilities in the pinned version itself. (4.4.0 was the latest as of the
+last review.) A page-level `Content-Security-Policy` further limits script origins to
+self + cdnjs — see the `<meta http-equiv="Content-Security-Policy">` tag in each file.
 
 ### Tests
 

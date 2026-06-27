@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- Self-contained page (no external scripts/styles/images). 'unsafe-inline'
+         is required for the page's inline style block, inline style="" attributes,
+         and inline onclick handlers; object-src 'none' + base-uri 'self' harden
+         against plugin/base-tag injection. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Finnish Yatzy - 2 Players</title>
     <style>
@@ -1101,14 +1106,14 @@
             document.getElementById('scoringNotice').classList.add('show');
         }
 
-        // Build the score-row HTML for one section (upper or lower). Potential
-        // scores show only for the active player after a roll on unfilled rows;
-        // a row is clickable to commit when scoring is enabled. cat.id/cat.name
-        // come from the static scoreCategories config, so they are safe to inline.
-        function renderCategoryRows(categories, player, enableClick) {
+        // Build the score-row HTML for one section (upper or lower) as a pure
+        // function of data: `potentials` is the cat.id → score map for unfilled
+        // rows (null when none should show), so no scoring runs in here. A row is
+        // clickable to commit when scoring is enabled. cat.id/cat.name come from
+        // the static scoreCategories config, so they are safe to inline.
+        function renderCategoryRows(categories, enableClick, potentials) {
             return categories.map(cat => {
-                const showPotential = player === currentPlayer && hasRolled && cat.value === null;
-                const potential = showPotential ? calculateScore(cat.id) : null;
+                const potential = (potentials && cat.value === null) ? (potentials[cat.id] ?? null) : null;
                 const clickable = enableClick && cat.value === null && potential !== null;
                 const display = cat.value !== null
                     ? cat.value
@@ -1125,6 +1130,17 @@
             }).join('');
         }
 
+        // Potential score for every unfilled category, keyed by cat.id, computed
+        // purely from the current dice. No DOM, no rendering — the render path
+        // consumes this map instead of calling calculateScore inline.
+        function getPotentialScores(scores) {
+            const potentials = {};
+            [...scores.upper, ...scores.lower].forEach(cat => {
+                if (cat.value === null) potentials[cat.id] = calculateScore(cat.id);
+            });
+            return potentials;
+        }
+
         function renderScorecard(player, enableClick = false) {
             const scores = player === 1 ? player1Scores : player2Scores;
             const container = document.getElementById(`scorecardBody${player}`);
@@ -1133,7 +1149,11 @@
             const bonus = upperTotal >= 63 ? 50 : 0;
             const grandTotal = calculateGrandTotal(scores);
 
-            let html = renderCategoryRows(scores.upper, player, enableClick);
+            // Potentials show only for the active player after a roll; compute the
+            // map once and hand it to the row renderer.
+            const potentials = (player === currentPlayer && hasRolled) ? getPotentialScores(scores) : null;
+
+            let html = renderCategoryRows(scores.upper, enableClick, potentials);
             html += `<div class="section-divider"></div>`;
             html += `
                 <div class="score-row total-row">
@@ -1146,7 +1166,7 @@
                 </div>
             `;
             html += `<div class="section-divider"></div>`;
-            html += renderCategoryRows(scores.lower, player, enableClick);
+            html += renderCategoryRows(scores.lower, enableClick, potentials);
             html += `<div class="section-divider"></div>`;
             html += `
                 <div class="score-row total-row">
