@@ -3,18 +3,18 @@
 <html lang="fi">
 <head>
 <meta charset="UTF-8">
-<!-- The only external resource is ExcelJS, loaded on demand from cdnjs (SRI-pinned)
-     for the Excel export; everything else is inline. cdnjs is whitelisted in
-     script-src; 'unsafe-inline' covers the page's inline script and style blocks;
-     no 'unsafe-eval' needed (ExcelJS's Function() calls are unreachable
-     global-detection fallbacks in modern browsers). object-src 'none' + base-uri
-     'self' add hardening. -->
+<!-- ExcelJS is loaded on demand from cdnjs (SRI-pinned) for the preferred .xlsx
+     export; everything else is inline. Offline or CDN failure falls back to a
+     same-data JSON download (exportJsonFallback) — no network required. cdnjs
+     is whitelisted in script-src; 'unsafe-inline' covers the page's inline
+     script and style; no 'unsafe-eval' needed (ExcelJS's Function() calls are
+     unreachable global-detection fallbacks in modern browsers). object-src
+     'none' + base-uri 'self' add hardening. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>
-<!-- ExcelJS is loaded on demand from cdnjs (pinned by SRI) the first time the
-     user exports — see loadExcelJS(). The page has no external dependency at
-     load time; only the Excel export needs the network. -->
+<!-- ExcelJS is loaded on demand from cdnjs (pinned by SRI) for .xlsx export.
+     If the load fails (offline venue), export falls back to JSON automatically. -->
 <style>
   :root {
     --bg: #f3f4f6;
@@ -238,7 +238,7 @@ function persist() {
     // still intact in memory and fully exportable. Warn the operator to export
     // now rather than silently reporting a save that never reached disk.
     alert("⚠ Selaimen tallennustila on täynnä eikä tietoja voitu tallentaa pysyvästi.\n\n" +
-          "Vie tiedot heti Exceliin (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
+          "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
           "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
   }
   updateCount();
@@ -637,7 +637,7 @@ function routeNumberKey(n) {
 }
 
 /* ------------------------------------------------------------------ *
- * Excel export (ExcelJS) — 3 sheets
+ * Export — Excel (.xlsx via ExcelJS) with offline JSON fallback
  * ------------------------------------------------------------------ */
 // Shared value→label lookup for the {v,label} config arrays; "" when not found.
 const labelFor = (arr, v) => (arr.find(x => x.v === v) || {}).label || "";
@@ -646,6 +646,7 @@ function recLabel(v) { return labelFor(RECOMMEND, v); }
 
 // ExcelJS is pulled from cdnjs on first export (not at page load), pinned to an
 // exact version by Subresource Integrity so a tampered CDN payload is rejected.
+// Offline / CDN failure → exportJsonFallback() (same three sheets, no network).
 const EXCELJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
 const EXCELJS_SRI = "sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw==";
 let excelJsLoad = null;
@@ -664,14 +665,31 @@ function loadExcelJS() {
   return excelJsLoad;
 }
 
-async function exportExcel() {
-  if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
-  try {
-    await loadExcelJS();
-  } catch (e) {
-    alert("Excel-kirjasto ei latautunut (tarkista verkkoyhteys).");
-    return;
-  }
+// Snapshot of the three sheet row arrays (and raw forms) for offline JSON export.
+// Sheet builders are pure over `forms`, so this reuses the same data as .xlsx.
+function buildExportPayload() {
+  return {
+    exportedAt: new Date().toISOString(),
+    event: "Työhyvinvoinnin huipulla 2026",
+    format: "palaute-export-v1",
+    formCount: forms.length,
+    forms: forms,
+    sheets: {
+      "Vastaukset": sheetResponses().rows,
+      "Yhteenveto": sheetSummary().rows,
+      "Avoimet teemat": sheetThemes().rows,
+    },
+  };
+}
+
+function exportJsonFallback() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const json = JSON.stringify(buildExportPayload(), null, 2);
+  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+  downloadBlob(blob, `palaute-huippu2026-${stamp}.json`);
+}
+
+async function exportXlsx() {
   const wb = new ExcelJS.Workbook();
   buildSheet(wb, "Vastaukset", sheetResponses());
   buildSheet(wb, "Yhteenveto", sheetSummary());
@@ -679,6 +697,20 @@ async function exportExcel() {
   const stamp = new Date().toISOString().slice(0, 10);
   const buf = await wb.xlsx.writeBuffer();
   downloadBlob(buf, `palaute-huippu2026-${stamp}.xlsx`);
+}
+
+// Prefer .xlsx when ExcelJS is reachable; never fail closed offline — fall back
+// to JSON with the same three sheets so the venue can still extract all data.
+async function exportExcel() {
+  if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
+  try {
+    await loadExcelJS();
+    await exportXlsx();
+  } catch (e) {
+    exportJsonFallback();
+    alert("Excel-kirjasto ei latautunut (ei verkkoa?). Tiedot vietiin JSON-muodossa — " +
+          "sama sisältö kuin Excelissä (Vastaukset, Yhteenveto, Avoimet teemat).");
+  }
 }
 
 /* ---- Excel styling palette + helpers (one teal accent, light borders) ---- */
@@ -730,8 +762,9 @@ function buildSheet(wb, name, { rows, widths, style }) {
   return ws;
 }
 
-function downloadBlob(buf, filename) {
-  const blob = new Blob([buf], {
+// Accept either a Blob or a buffer/ArrayBuffer (xlsx writeBuffer).
+function downloadBlob(data, filename) {
+  const blob = data instanceof Blob ? data : new Blob([data], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
   const url = URL.createObjectURL(blob);

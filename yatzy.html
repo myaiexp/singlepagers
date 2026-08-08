@@ -778,8 +778,9 @@
 
     <script>
         // Game state (dice/scores) lives in JS variables and resets naturally on
-        // reload via init(). Player names and statistics persist in localStorage
-        // (keys: yatzy_playerNames, yatzy_statistics) and must NOT be cleared here —
+        // reload via init(). Player seats (id + display name) and statistics
+        // persist in localStorage (keys: yatzy_players, yatzy_statistics; legacy
+        // yatzy_playerNames is migrated once) and must NOT be cleared here —
         // stats reset is an explicit user action in confirmResetStats().
 
         // Game State
@@ -794,11 +795,28 @@
         // so a quick "Play Again" can't leak divs from the previous game's burst.
         let confettiTimers = [];
 
-        // Player Names
-        let playerNames = {
-            player1: 'Player 1',
-            player2: 'Player 2'
+        // Per-seat identity: stats are keyed by stable `id` so renaming mid-game
+        // (Edit Names) updates the display name without forking a new stats entry.
+        // `playerNames` is a derived view kept for call sites that only need labels.
+        let players = {
+            player1: { id: null, name: 'Player 1' },
+            player2: { id: null, name: 'Player 2' }
         };
+        let playerNames = { player1: 'Player 1', player2: 'Player 2' };
+
+        function newPlayerId() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 11);
+        }
+
+        function syncPlayerNamesView() {
+            playerNames = {
+                player1: players.player1.name,
+                player2: players.player2.name
+            };
+        }
 
         const scoreCategories = {
             upper: [
@@ -843,23 +861,143 @@
             rollDice();
         }
 
-        // ===== PLAYER NAMES MANAGEMENT =====
-        
-        function loadPlayerNames() {
-            const saved = localStorage.getItem('yatzy_playerNames');
-            if (saved) {
-                playerNames = JSON.parse(saved);
+        // ===== PLAYER SEATS (stable id + display name) =====
+
+        // Empty stats shape; `name` is the last-known display label for this id.
+        function emptyStats(name) {
+            return {
+                name: name || '',
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                totalRolls: 0,
+                highestScore: 0,
+                totalPoints: 0,
+                yatzysScored: 0,
+                bonusCount: 0
+            };
+        }
+
+        function loadAllStats() {
+            try {
+                return JSON.parse(localStorage.getItem('yatzy_statistics') || '{}') || {};
+            } catch {
+                return {};
             }
+        }
+
+        function saveAllStats(allStats) {
+            localStorage.setItem('yatzy_statistics', JSON.stringify(allStats));
+        }
+
+        // Rewrite name-keyed legacy stats under seat ids. Modern rows always carry
+        // a `name` field and are keyed by UUID; legacy used the display name as key.
+        function migrateLegacyNameKeyedStats(seatMap) {
+            const all = loadAllStats();
+            if (!Object.keys(all).length) return;
+            const nameToId = {
+                [seatMap.player1.name]: seatMap.player1.id,
+                [seatMap.player2.name]: seatMap.player2.id,
+            };
+            const seatIds = new Set([seatMap.player1.id, seatMap.player2.id]);
+            let changed = false;
+            const next = { ...all };
+            for (const [key, stats] of Object.entries(all)) {
+                if (!stats || typeof stats !== 'object') continue;
+                if (seatIds.has(key)) {
+                    if (stats.name === undefined) {
+                        const slot = key === seatMap.player1.id ? 'player1' : 'player2';
+                        next[key] = { ...stats, name: seatMap[slot].name };
+                        changed = true;
+                    }
+                    continue;
+                }
+                // Legacy name key matching a current seat → re-key under that seat id
+                const targetId = nameToId[key];
+                if (targetId) {
+                    const existing = next[targetId];
+                    if (existing && existing !== stats) {
+                        next[targetId] = mergeStats(existing, { ...stats, name: key });
+                    } else {
+                        next[targetId] = { ...emptyStats(key), ...stats, name: key };
+                    }
+                    delete next[key];
+                    changed = true;
+                } else if (stats.name === undefined) {
+                    // Orphan name-keyed row: preserve under a fresh id
+                    const orphanId = newPlayerId();
+                    next[orphanId] = { ...emptyStats(key), ...stats, name: key };
+                    delete next[key];
+                    changed = true;
+                }
+            }
+            if (changed) saveAllStats(next);
+        }
+
+        function mergeStats(a, b) {
+            return {
+                name: b.name || a.name || '',
+                gamesPlayed: (a.gamesPlayed || 0) + (b.gamesPlayed || 0),
+                wins: (a.wins || 0) + (b.wins || 0),
+                losses: (a.losses || 0) + (b.losses || 0),
+                draws: (a.draws || 0) + (b.draws || 0),
+                totalRolls: (a.totalRolls || 0) + (b.totalRolls || 0),
+                highestScore: Math.max(a.highestScore || 0, b.highestScore || 0),
+                totalPoints: (a.totalPoints || 0) + (b.totalPoints || 0),
+                yatzysScored: (a.yatzysScored || 0) + (b.yatzysScored || 0),
+                bonusCount: (a.bonusCount || 0) + (b.bonusCount || 0)
+            };
+        }
+
+        function loadPlayerNames() {
+            const rawPlayers = localStorage.getItem('yatzy_players');
+            if (rawPlayers) {
+                try {
+                    const parsed = JSON.parse(rawPlayers);
+                    if (parsed?.player1?.id && parsed?.player2?.id) {
+                        players = {
+                            player1: { id: parsed.player1.id, name: parsed.player1.name || 'Player 1' },
+                            player2: { id: parsed.player2.id, name: parsed.player2.name || 'Player 2' }
+                        };
+                        syncPlayerNamesView();
+                        savePlayersToStorage(); // refresh legacy name key in sync
+                        updatePlayerNamesDisplay();
+                        return;
+                    }
+                } catch { /* fall through to migrate */ }
+            }
+
+            // Migrate legacy name-only storage (or first run)
+            let n1 = 'Player 1';
+            let n2 = 'Player 2';
+            const legacy = localStorage.getItem('yatzy_playerNames');
+            if (legacy) {
+                try {
+                    const names = JSON.parse(legacy);
+                    if (names?.player1) n1 = names.player1;
+                    if (names?.player2) n2 = names.player2;
+                } catch { /* defaults */ }
+            }
+            players = {
+                player1: { id: newPlayerId(), name: n1 },
+                player2: { id: newPlayerId(), name: n2 }
+            };
+            syncPlayerNamesView(); // before save — legacy key is derived from this
+            migrateLegacyNameKeyedStats(players);
+            savePlayersToStorage();
             updatePlayerNamesDisplay();
         }
 
-        function savePlayerNamesToStorage() {
+        function savePlayersToStorage() {
+            localStorage.setItem('yatzy_players', JSON.stringify(players));
+            // Keep legacy key in sync for older readers / smoke tests that seed it
             localStorage.setItem('yatzy_playerNames', JSON.stringify(playerNames));
         }
 
         function updatePlayerNamesDisplay() {
-            document.getElementById('scorecard1').querySelector('.scorecard-header').textContent = playerNames.player1;
-            document.getElementById('scorecard2').querySelector('.scorecard-header').textContent = playerNames.player2;
+            document.getElementById('scorecard1').querySelector('.scorecard-header').textContent = players.player1.name;
+            document.getElementById('scorecard2').querySelector('.scorecard-header').textContent = players.player2.name;
             updateUI(); // This will update the current player display
         }
 
@@ -875,8 +1013,8 @@
             const p1El = document.getElementById('player1Name');
             const p2El = document.getElementById('player2Name');
 
-            p1El.value = playerNames.player1;
-            p2El.value = playerNames.player2;
+            p1El.value = players.player1.name;
+            p2El.value = players.player2.name;
 
             showModal('playerNamesModal');
 
@@ -891,39 +1029,48 @@
             const p1Name = document.getElementById('player1Name').value.trim();
             const p2Name = document.getElementById('player2Name').value.trim();
 
-            playerNames.player1 = p1Name || 'Player 1';
-            playerNames.player2 = p2Name || 'Player 2';
+            // Display names only — seat ids stay put so mid-game renames don't
+            // fork statistics into a new entry under the new name.
+            players.player1.name = p1Name || 'Player 1';
+            players.player2.name = p2Name || 'Player 2';
+            syncPlayerNamesView();
 
-            savePlayerNamesToStorage();
+            // Keep any existing stats row's display name in sync with the seat.
+            const all = loadAllStats();
+            let dirty = false;
+            for (const slot of ['player1', 'player2']) {
+                const id = players[slot].id;
+                if (all[id]) {
+                    all[id] = { ...all[id], name: players[slot].name };
+                    dirty = true;
+                }
+            }
+            if (dirty) saveAllStats(all);
+
+            savePlayersToStorage();
             updatePlayerNamesDisplay();
             closeModal('playerNamesModal');
         }
 
-        // ===== STATISTICS MANAGEMENT =====
+        // ===== STATISTICS MANAGEMENT (keyed by seat id) =====
 
-        function getPlayerStats(playerName) {
-            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
-            return allStats[playerName] || {
-                gamesPlayed: 0,
-                wins: 0,
-                losses: 0,
-                draws: 0,
-                totalRolls: 0,
-                highestScore: 0,
-                totalPoints: 0,
-                yatzysScored: 0,
-                bonusCount: 0
-            };
+        function getPlayerStats(playerId) {
+            const allStats = loadAllStats();
+            const existing = allStats[playerId];
+            if (existing) return { ...emptyStats(existing.name), ...existing };
+            const seat = Object.values(players).find(p => p.id === playerId);
+            return emptyStats(seat ? seat.name : '');
         }
 
-        function savePlayerStats(playerName, stats) {
-            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
-            allStats[playerName] = stats;
-            localStorage.setItem('yatzy_statistics', JSON.stringify(allStats));
+        function savePlayerStats(playerId, stats) {
+            const allStats = loadAllStats();
+            allStats[playerId] = stats;
+            saveAllStats(allStats);
         }
 
-        function updateOnePlayerStats(playerName, score, bonus, yatzy, didWin, didLose) {
-            const stats = getPlayerStats(playerName);
+        function updateOnePlayerStats(playerId, displayName, score, bonus, yatzy, didWin, didLose) {
+            const stats = getPlayerStats(playerId);
+            stats.name = displayName;
             stats.gamesPlayed++;
             stats.totalRolls += currentGameRolls;
             stats.totalPoints += score;
@@ -933,12 +1080,12 @@
             if (didWin) stats.wins++;
             else if (didLose) stats.losses++;
             else stats.draws = (stats.draws || 0) + 1; // tie: keep wins+losses+draws == gamesPlayed
-            savePlayerStats(playerName, stats);
+            savePlayerStats(playerId, stats);
         }
 
         function updateGameStatistics(winner, p1Score, p2Score, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy) {
-            updateOnePlayerStats(playerNames.player1, p1Score, p1Bonus, p1Yatzy, winner === 1, winner === 2);
-            updateOnePlayerStats(playerNames.player2, p2Score, p2Bonus, p2Yatzy, winner === 2, winner === 1);
+            updateOnePlayerStats(players.player1.id, players.player1.name, p1Score, p1Bonus, p1Yatzy, winner === 1, winner === 2);
+            updateOnePlayerStats(players.player2.id, players.player2.name, p2Score, p2Bonus, p2Yatzy, winner === 2, winner === 1);
         }
 
         function showStatsModal() {
@@ -947,7 +1094,7 @@
         }
 
         function renderStatistics() {
-            const allStats = JSON.parse(localStorage.getItem('yatzy_statistics') || '{}');
+            const allStats = loadAllStats();
             const content = document.getElementById('statsContent');
             
             if (Object.keys(allStats).length === 0) {
@@ -957,14 +1104,17 @@
 
             let html = '<div class="stats-grid">';
             
-            for (const [playerName, stats] of Object.entries(allStats)) {
+            for (const [playerId, stats] of Object.entries(allStats)) {
+                // Prefer live seat name when this id is currently seated
+                const seat = Object.values(players).find(p => p.id === playerId);
+                const displayName = seat ? seat.name : (stats.name || playerId);
                 const winRate = stats.gamesPlayed > 0 ? ((stats.wins / stats.gamesPlayed) * 100).toFixed(1) : '0.0';
                 const avgScore = stats.gamesPlayed > 0 ? (stats.totalPoints / stats.gamesPlayed).toFixed(1) : '0.0';
                 const avgRolls = stats.gamesPlayed > 0 ? (stats.totalRolls / stats.gamesPlayed).toFixed(1) : '0.0';
                 
                 html += `
                     <div class="stat-card">
-                        <h4>🎲 ${escapeHtml(playerName)}</h4>
+                        <h4>🎲 ${escapeHtml(displayName)}</h4>
                         <div class="stat-row">
                             <span class="stat-label">Games Played</span>
                             <span class="stat-value stat-highlight">${stats.gamesPlayed}</span>

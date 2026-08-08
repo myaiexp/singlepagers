@@ -78,11 +78,17 @@ export function createDocument() {
 // Build a vm sandbox with the browser globals yatzy.html's script actually uses.
 // setTimeout is a no-op: load-time smoke only cares about synchronous top-level code,
 // and firing dice-animation callbacks would need far more DOM fidelity.
+// ECMAScript builtins (Math/JSON/Date/crypto) are copied in — vm contexts do not
+// inherit them, and seat-id generation / scoring need them.
 export function createSandbox(seed) {
   const sandbox = {
     localStorage: createLocalStorage(seed),
     document: createDocument(),
     console,
+    Math,
+    JSON,
+    Date,
+    crypto: globalThis.crypto,
     alert() {},
     confirm() { return false; },
     prompt() { return null; },
