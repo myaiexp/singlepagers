@@ -790,6 +790,13 @@
         let keptDice = [false, false, false, false, false];
         let hasRolled = false;
         let currentGameRolls = 0; // Track rolls in current game
+        // In-flight roll lock: rollDice's 500ms settle writes diceValues and
+        // decrements rollsRemaining in a timeout. Without this, a second click
+        // (or scoreCategory → nextTurn → rollDice) queues another timeout that
+        // mutates the next player's state. rollTimer is cleared on newGame /
+        // nextTurn so a stale callback cannot land after a turn change.
+        let isRolling = false;
+        let rollTimer = null;
 
         // Pending confetti timers (spawn + per-piece removal), cleared on newGame
         // so a quick "Play Again" can't leak divs from the previous game's burst.
@@ -1183,21 +1190,32 @@
         }
 
         function toggleKeepDie(index) {
-            if (!hasRolled || rollsRemaining === 3) return;
+            if (isRolling || !hasRolled || rollsRemaining === 3) return;
             keptDice[index] = !keptDice[index];
             updateDiceDisplay();
         }
 
-        function rollDice() {
-            if (rollsRemaining === 0) return;
+        function cancelPendingRoll() {
+            if (rollTimer !== null) {
+                clearTimeout(rollTimer);
+                rollTimer = null;
+            }
+            isRolling = false;
+        }
 
+        function rollDice() {
+            if (rollsRemaining === 0 || isRolling) return;
+
+            isRolling = true;
             hasRolled = true;
             currentGameRolls++; // Track total rolls in game
             const dice = document.querySelectorAll('.die');
 
             dice.forEach(die => die.classList.add('rolling'));
+            updateUI();
 
-            setTimeout(() => {
+            rollTimer = setTimeout(() => {
+                rollTimer = null;
                 for (let i = 0; i < 5; i++) {
                     if (!keptDice[i]) {
                         diceValues[i] = Math.floor(Math.random() * 6) + 1;
@@ -1205,6 +1223,7 @@
                 }
 
                 rollsRemaining--;
+                isRolling = false;
                 updateDiceDisplay();
                 updateUI();
 
@@ -1243,7 +1262,7 @@
             document.getElementById('rollsRemaining').textContent = rollsRemaining;
             
             const rollBtn = document.getElementById('rollBtn');
-            rollBtn.disabled = rollsRemaining === 0;
+            rollBtn.disabled = rollsRemaining === 0 || isRolling;
 
             // Update active scorecard
             document.getElementById('scorecard1').classList.toggle('active', currentPlayer === 1);
@@ -1340,6 +1359,8 @@
         }
 
         function scoreCategory(categoryId) {
+            if (isRolling) return;
+
             const scores = currentPlayer === 1 ? player1Scores : player2Scores;
             const score = calculateScore(categoryId);
 
@@ -1432,6 +1453,7 @@
         }
 
         function nextTurn() {
+            cancelPendingRoll();
             document.getElementById('scoringNotice').classList.remove('show');
 
             currentPlayer = currentPlayer === 1 ? 2 : 1;
@@ -1535,6 +1557,7 @@
         }
         
         function newGame() {
+            cancelPendingRoll();
             clearConfetti();
 
             currentPlayer = 1;
