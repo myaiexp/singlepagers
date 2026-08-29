@@ -4,17 +4,17 @@
 <head>
 <meta charset="UTF-8">
 <!-- ExcelJS is loaded on demand from cdnjs (SRI-pinned) for the preferred .xlsx
-     export; everything else is inline. Offline or CDN failure falls back to a
-     same-data JSON download (exportJsonFallback) — no network required. cdnjs
-     is whitelisted in script-src; 'unsafe-inline' covers the page's inline
-     script and style; no 'unsafe-eval' needed (ExcelJS's Function() calls are
-     unreachable global-detection fallbacks in modern browsers). object-src
-     'none' + base-uri 'self' add hardening. -->
+     export; everything else is inline. Offline, CDN failure, or a hung request
+     (8s timeout) falls back to a same-data JSON download (exportJsonFallback) —
+     no network required. cdnjs is whitelisted in script-src; 'unsafe-inline'
+     covers the page's inline script and style; no 'unsafe-eval' needed
+     (ExcelJS's Function() calls are unreachable global-detection fallbacks in
+     modern browsers). object-src 'none' + base-uri 'self' add hardening. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>
 <!-- ExcelJS is loaded on demand from cdnjs (pinned by SRI) for .xlsx export.
-     If the load fails (offline venue), export falls back to JSON automatically. -->
+     If the load fails or hangs past 8s (offline venue), export falls back to JSON. -->
 <style>
   :root {
     --bg: #f3f4f6;
@@ -175,6 +175,7 @@
  * Static config — mirrors the paper form exactly
  * ------------------------------------------------------------------ */
 const STORAGE_KEY = "palaute_huippu2026_v1";
+const STORAGE_RECOVERY_KEY = STORAGE_KEY + "_recovery";
 
 const ATTENDANCE = [
   { v: "both", label: "Molemmat päivät" },
@@ -207,6 +208,7 @@ const FREETEXT = [
 /* ------------------------------------------------------------------ *
  * State
  * ------------------------------------------------------------------ */
+let storageUnreadable = false; // true when STORAGE_KEY exists but would not parse
 let forms = load();        // array of saved form objects
 let current = blankForm(); // form being entered/edited
 let editingId = null;      // id of form being edited, or null for a new one
@@ -223,16 +225,43 @@ function blankForm() {
     phone: "",
   };
 }
+function cloneForm(f) {
+  return JSON.parse(JSON.stringify(f));
+}
 
 function load() {
+  let raw;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) { return []; }
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    return [];
+  }
+  if (!raw) return [];
+  try {
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) throw new Error("palaute store is not an array");
+    return data;
+  } catch (e) {
+    // Parse failure: keep the blob. persist() writes STORAGE_RECOVERY_KEY
+    // instead so a later save cannot destroy the only copy of event responses.
+    storageUnreadable = true;
+    alert("⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+          "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
+          "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.");
+    try {
+      const rec = localStorage.getItem(STORAGE_RECOVERY_KEY);
+      if (!rec) return [];
+      const data = JSON.parse(rec);
+      return Array.isArray(data) ? data : [];
+    } catch (e2) {
+      return [];
+    }
+  }
 }
 function persist() {
+  const key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
+    localStorage.setItem(key, JSON.stringify(forms));
   } catch (e) {
     // Quota exceeded (or storage disabled): the write failed, but `forms` is
     // still intact in memory and fully exportable. Warn the operator to export
@@ -497,17 +526,23 @@ function suggestKeydown(e, key, ta) {
 function saveForm() {
   if (editingId !== null) {
     const idx = forms.findIndex(f => f.id === editingId);
-    if (idx !== -1) forms[idx] = { ...current, id: editingId };
+    if (idx !== -1) {
+      const saved = cloneForm(current);
+      saved.id = editingId;
+      forms[idx] = saved;
+    }
     editingId = null;
+    current = blankForm();
     cursor = { sec: "att" }; // reset so the next blank entry starts on attendance
     persist();
     showReview();
     return;
   }
-  current.id = (typeof crypto !== "undefined" && crypto.randomUUID)
+  const saved = cloneForm(current);
+  saved.id = (typeof crypto !== "undefined" && crypto.randomUUID)
     ? crypto.randomUUID()
     : Date.now() + "-" + Math.random().toString(36).slice(2, 7);
-  forms.push(current);
+  forms.push(saved);
   persist();
   current = blankForm();
   cursor = { sec: "att" };
@@ -562,7 +597,7 @@ function renderReview() {
 function editForm(id) {
   const f = forms.find(x => x.id === id);
   if (!f) return;
-  current = JSON.parse(JSON.stringify(f));
+  current = cloneForm(f);
   editingId = id;
   cursor = { sec: "att" };
   showEntry();
@@ -646,10 +681,12 @@ function recLabel(v) { return labelFor(RECOMMEND, v); }
 
 // ExcelJS is pulled from cdnjs on first export (not at page load), pinned to an
 // exact version by Subresource Integrity so a tampered CDN payload is rejected.
-// Offline / CDN failure → exportJsonFallback() (same three sheets, no network).
+// Offline / CDN failure / hung request (8s) → exportJsonFallback() (same three
+// sheets, no network). Timeout drops the cached promise so a retry can start over.
 const EXCELJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
 const EXCELJS_SRI = "sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw==";
 let excelJsLoad = null;
+let EXCELJS_LOAD_TIMEOUT_MS = 8000;
 function loadExcelJS() {
   if (typeof ExcelJS !== "undefined") return Promise.resolve();
   if (excelJsLoad) return excelJsLoad;
@@ -658,8 +695,17 @@ function loadExcelJS() {
     s.src = EXCELJS_URL;
     s.integrity = EXCELJS_SRI;
     s.crossOrigin = "anonymous";
-    s.onload = () => resolve();
-    s.onerror = () => { excelJsLoad = null; reject(new Error("ExcelJS load failed")); };
+    let timer = 0;
+    const fail = (err) => {
+      clearTimeout(timer);
+      s.onload = s.onerror = null;
+      if (typeof s.remove === "function") s.remove();
+      excelJsLoad = null;
+      reject(err);
+    };
+    timer = setTimeout(() => fail(new Error("ExcelJS load timed out")), EXCELJS_LOAD_TIMEOUT_MS);
+    s.onload = () => { clearTimeout(timer); resolve(); };
+    s.onerror = () => fail(new Error("ExcelJS load failed"));
     document.head.appendChild(s);
   });
   return excelJsLoad;

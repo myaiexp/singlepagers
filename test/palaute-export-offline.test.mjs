@@ -19,12 +19,17 @@ function extractScript(html) {
   return m[1];
 }
 
-function loadPage({ withExcelJS = false } = {}) {
+function loadPage({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
   const downloads = [];
   const alerts = [];
   const sandbox = createSandbox({});
   sandbox.JSON = JSON;
   sandbox.Date = Date;
+  sandbox.Promise = Promise;
+  if (realTimers) {
+    sandbox.setTimeout = setTimeout;
+    sandbox.clearTimeout = clearTimeout;
+  }
   sandbox.alert = (msg) => { alerts.push(String(msg)); };
   sandbox.Blob = function Blob(parts, opts) {
     this.parts = parts;
@@ -77,7 +82,7 @@ function loadPage({ withExcelJS = false } = {}) {
   }
 
   // Force loadExcelJS to reject when ExcelJS is absent (script injection is a no-op under stub)
-  if (!withExcelJS) {
+  if (stubLoadExcelJS) {
     vm.runInContext(
       `loadExcelJS = () => Promise.reject(new Error('ExcelJS load failed'));`,
       sandbox,
@@ -122,6 +127,27 @@ test('exportJsonFallback alone produces the same three-sheet payload', () => {
   const payload = JSON.parse(downloads[0].text);
   assert.equal(payload.sheets['Vastaukset'][1][1], 'Molemmat päivät'); // attLabel
 });
+
+test('loadExcelJS times out, clears the cached promise, and lets a retry start fresh', async () => {
+  const { run } = loadPage({ stubLoadExcelJS: false, realTimers: true });
+  run('EXCELJS_LOAD_TIMEOUT_MS = 40');
+  const first = run('loadExcelJS()');
+  await assert.rejects(first, /timed out/i);
+  assert.equal(run('excelJsLoad'), null, 'cached promise must be cleared so a retry can inject a fresh script');
+  const second = run('loadExcelJS()');
+  assert.notEqual(second, first);
+  await assert.rejects(second, /timed out/i);
+}, { timeout: 2000 });
+
+test('exportExcel falls back to JSON when the ExcelJS script hangs past the timeout', async () => {
+  const { run, downloads, alerts } = loadPage({ stubLoadExcelJS: false, realTimers: true });
+  run('EXCELJS_LOAD_TIMEOUT_MS = 40');
+  run(`forms = ${JSON.stringify(FORMS)};`);
+  await run('exportExcel()');
+  assert.equal(downloads.length, 1);
+  assert.match(downloads[0].type, /json/i);
+  assert.ok(alerts.some(a => /JSON/i.test(a)));
+}, { timeout: 2000 });
 
 test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
   const { run, downloads, alerts } = loadPage({ withExcelJS: true });

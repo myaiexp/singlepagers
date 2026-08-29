@@ -18,10 +18,12 @@ to generate the preferred `.xlsx` export, pinned by a Subresource Integrity (SRI
 hash so a tampered CDN payload is rejected. The page itself boots and does all
 data entry with **no** network dependency.
 
-If ExcelJS cannot load (offline venue, CDN down), export **falls back to JSON**
-via `exportJsonFallback()` — same three sheets (Vastaukset / Yhteenveto / Avoimet
-teemat) plus raw `forms`, no library required. The operator still gets a complete
-download; they are told the format was JSON rather than Excel.
+If ExcelJS cannot load (offline venue, CDN down, or the request hangs past 8s),
+export **falls back to JSON** via `exportJsonFallback()` — same three sheets
+(Vastaukset / Yhteenveto / Avoimet teemat) plus raw `forms`, no library required.
+The operator still gets a complete download; they are told the format was JSON
+rather than Excel. A stalled script load is treated the same as `onerror`: the
+cached promise is dropped so a later retry injects a fresh `<script>`.
 
 When bumping the ExcelJS version, regenerate the SRI hash
 (`curl -s <url> | openssl dgst -sha512 -binary | openssl base64 -A`, or take it
