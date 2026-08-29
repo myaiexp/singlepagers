@@ -2,48 +2,33 @@
 // — calculateScore (15 category branches + default), calculateUpperTotal,
 // calculateGrandTotal (the >=63 upper bonus), and isGameOver.
 //
-// Same no-deps approach as yatzy-load-persistence.test.mjs: the page's real
-// <script> runs under node:vm against the stub DOM, with ZERO changes to
-// yatzy.html. The scoring functions are top-level declarations, and diceValues /
-// player1Scores / player2Scores are top-level `let` bindings — both reachable
-// from later runInContext() calls in the same realm, so we drive the engine by
-// assigning the state a function reads, then calling it. The load throws on a
-// late DOM-stub miss, but every scoring declaration is hoisted/initialized
-// before that point (verified), so the throw is irrelevant to these tests.
+// Same no-deps approach as yatzy-load-persistence.test.mjs: loadPage runs the
+// page's real <script> under node:vm against the stub DOM, with ZERO changes
+// to yatzy.html. The scoring functions are top-level declarations, and
+// diceValues / player1Scores / player2Scores are top-level `let` bindings —
+// both reachable from later run() calls in the same realm, so we drive the
+// engine by assigning the state a function reads, then calling it. The load
+// throws on a late DOM-stub miss, but every scoring declaration is
+// hoisted/initialized before that point (verified), so the throw is irrelevant
+// to these tests.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block found in yatzy.html');
-  return m[1];
-}
-
 // One sandbox shared across tests: every helper fully sets the state its target
 // reads before calling, so there is no cross-test leakage.
-const sandbox = createSandbox({});
-vm.createContext(sandbox);
-try {
-  vm.runInContext(extractScript(readFileSync(yatzyPath, 'utf8')), sandbox, {
-    filename: 'yatzy.html#script',
-  });
-} catch {
-  // Load-time DOM-stub miss — tolerated; scoring decls are already initialized.
-}
+const { run } = loadPage(yatzyPath);
 
 // Set diceValues, then score one category against the page's real calculateScore.
 function scoreOf(dice, categoryId) {
-  vm.runInContext(`diceValues = ${JSON.stringify(dice)};`, sandbox);
-  return vm.runInContext(`calculateScore(${JSON.stringify(categoryId)});`, sandbox);
+  run(`diceValues = ${JSON.stringify(dice)};`);
+  return run(`calculateScore(${JSON.stringify(categoryId)});`);
 }
 
 // calculateGrandTotal / calculateUpperTotal only read .upper/.lower[].value.
@@ -53,16 +38,13 @@ function scores(upperVals, lowerVals) {
     lower: lowerVals.map((value) => ({ value })),
   };
 }
-const grandTotal = (s) => vm.runInContext(`calculateGrandTotal(${JSON.stringify(s)});`, sandbox);
-const upperTotal = (s) => vm.runInContext(`calculateUpperTotal(${JSON.stringify(s)});`, sandbox);
+const grandTotal = (s) => run(`calculateGrandTotal(${JSON.stringify(s)});`);
+const upperTotal = (s) => run(`calculateUpperTotal(${JSON.stringify(s)});`);
 
 // isGameOver reads the player1Scores / player2Scores let bindings.
 function gameOver(p1, p2) {
-  vm.runInContext(
-    `player1Scores = ${JSON.stringify(p1)}; player2Scores = ${JSON.stringify(p2)};`,
-    sandbox,
-  );
-  return vm.runInContext('isGameOver();', sandbox);
+  run(`player1Scores = ${JSON.stringify(p1)}; player2Scores = ${JSON.stringify(p2)};`);
+  return run('isGameOver();');
 }
 
 // --- calculateScore: upper section (sum of matching faces) -------------------

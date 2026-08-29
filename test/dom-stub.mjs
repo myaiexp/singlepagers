@@ -1,6 +1,10 @@
-// No-deps browser-environment stub for running yatzy.html's <script> under node:vm.
+// No-deps browser stub: fake DOM, vm sandbox, and page-script loader for tests.
 // jsdom is intentionally NOT a dependency of singlepagers (no build/test toolchain),
 // so this provides just enough of localStorage/document/timers to load the page.
+
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import vm from 'node:vm';
 
 export function createLocalStorage(seed = {}) {
   const store = new Map(Object.entries(seed));
@@ -104,4 +108,83 @@ export function createSandbox(seed) {
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   return sandbox;
+}
+
+// First attribute-free <script>…</script> body. A CDN tag with `src` is skipped
+// because it is `<script src=…>`, not `<script>`.
+export function extractInlineScript(html, filename = 'html') {
+  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  if (!m) throw new Error(`no inline <script> block found in ${filename}`);
+  return m[1];
+}
+
+// Load a page's inline script into a fresh sandbox. `patch(sandbox)` runs before
+// the script so tests can inject ExcelJS, timers, or spies. Load-time DOM-stub
+// misses are swallowed: page declarations the tests call are initialized first.
+export function loadPage(htmlPath, { seed = {}, patch } = {}) {
+  const filename = basename(htmlPath);
+  const code = extractInlineScript(readFileSync(htmlPath, 'utf8'), filename);
+  const sandbox = createSandbox(seed);
+  if (typeof patch === 'function') patch(sandbox);
+  vm.createContext(sandbox);
+  try {
+    vm.runInContext(code, sandbox, { filename: `${filename}#script` });
+  } catch {
+    // Load-time DOM-stub miss — tolerated; declarations used by tests are initialized.
+  }
+  const run = (src) => vm.runInContext(src, sandbox);
+  return { sandbox, run };
+}
+
+// Chainable stand-in for ExcelJS cells/rows/columns so style() closures run
+// without modelling fonts, fills, or alignments.
+function excelChain() {
+  const node = { getCell: () => excelChain(), getRow: () => excelChain() };
+  return new Proxy(node, {
+    get(t, p) {
+      if (p in t) return t[p];
+      if (typeof p === 'symbol') return undefined;
+      return () => excelChain();
+    },
+    set(t, p, v) { t[p] = v; return true; },
+  });
+}
+
+// Recording ExcelJS stand-in used by both export tests. `buffer` is what
+// `xlsx.writeBuffer()` resolves to (empty by default; a non-empty buffer lets
+// the xlsx download path look different from JSON).
+export function createExcelJSStub({ buffer = new Uint8Array(0) } = {}) {
+  const workbooks = [];
+  class Workbook {
+    constructor() {
+      this.worksheets = [];
+      workbooks.push(this);
+    }
+    addWorksheet(name) {
+      const rows = [];
+      const ws = {
+        name,
+        rows,
+        addRow(r) { rows.push(r); return excelChain(); },
+        getRow: () => excelChain(),
+        getColumn: () => excelChain(),
+        getCell: () => excelChain(),
+        addConditionalFormatting() {},
+        mergeCells() {},
+      };
+      this.worksheets.push(ws);
+      return new Proxy(ws, {
+        get(t, p) {
+          if (p in t) return t[p];
+          if (typeof p === 'symbol') return undefined;
+          return () => excelChain();
+        },
+        set(t, p, v) { t[p] = v; return true; },
+      });
+    }
+    get xlsx() {
+      return { writeBuffer: async () => buffer };
+    }
+  }
+  return { ExcelJS: { Workbook }, workbooks };
 }

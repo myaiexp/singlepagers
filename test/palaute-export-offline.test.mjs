@@ -4,93 +4,47 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage as bootPage, createExcelJSStub } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no inline <script> block found in palaute.html');
-  return m[1];
-}
-
 function loadPage({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
   const downloads = [];
   const alerts = [];
-  const sandbox = createSandbox({});
-  sandbox.JSON = JSON;
-  sandbox.Date = Date;
-  sandbox.Promise = Promise;
-  if (realTimers) {
-    sandbox.setTimeout = setTimeout;
-    sandbox.clearTimeout = clearTimeout;
-  }
-  sandbox.alert = (msg) => { alerts.push(String(msg)); };
-  sandbox.Blob = function Blob(parts, opts) {
-    this.parts = parts;
-    this.type = opts?.type || '';
-    this._text = parts.map(p => (typeof p === 'string' ? p : '')).join('');
-  };
-  sandbox.URL = {
-    createObjectURL: (blob) => {
-      downloads.push({ blob, type: blob.type, text: blob._text });
-      return 'blob:stub';
-    },
-    revokeObjectURL() {},
-  };
-
-  if (withExcelJS) {
-    // Minimal Workbook that still produces a download via writeBuffer
-    class Workbook {
-      constructor() { this.worksheets = []; }
-      addWorksheet(name) {
-        const ws = {
-          name, rows: [],
-          addRow(r) { this.rows.push(r); return { getCell: () => ({}) }; },
-          getRow: () => ({ getCell: () => ({}), height: 0 }),
-          getColumn: () => ({}),
-          getCell: () => ({}),
-          addConditionalFormatting() {},
-        };
-        this.worksheets.push(ws);
-        return new Proxy(ws, {
-          get(t, p) {
-            if (p in t) return t[p];
-            return () => new Proxy({}, { get: () => () => ({}) });
-          },
-          set() { return true; },
-        });
+  const { run } = bootPage(palautePath, {
+    patch(sandbox) {
+      if (realTimers) {
+        sandbox.setTimeout = setTimeout;
+        sandbox.clearTimeout = clearTimeout;
       }
-      get xlsx() { return { writeBuffer: async () => new Uint8Array([1, 2, 3]) }; }
-    }
-    sandbox.ExcelJS = { Workbook };
-  }
-  // No ExcelJS global → loadExcelJS will try to inject a script and fail
-
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(extractScript(readFileSync(palautePath, 'utf8')), sandbox, {
-      filename: 'palaute.html#script',
-    });
-  } catch {
-    // Load-time DOM-stub miss in boot — tolerated.
-  }
+      sandbox.alert = (msg) => { alerts.push(String(msg)); };
+      sandbox.Blob = function Blob(parts, opts) {
+        this.parts = parts;
+        this.type = opts?.type || '';
+        this._text = parts.map(p => (typeof p === 'string' ? p : '')).join('');
+      };
+      sandbox.URL = {
+        createObjectURL: (blob) => {
+          downloads.push({ blob, type: blob.type, text: blob._text });
+          return 'blob:stub';
+        },
+        revokeObjectURL() {},
+      };
+      if (withExcelJS) {
+        sandbox.ExcelJS = createExcelJSStub({ buffer: new Uint8Array([1, 2, 3]) }).ExcelJS;
+      }
+    },
+  });
 
   // Force loadExcelJS to reject when ExcelJS is absent (script injection is a no-op under stub)
   if (stubLoadExcelJS) {
-    vm.runInContext(
-      `loadExcelJS = () => Promise.reject(new Error('ExcelJS load failed'));`,
-      sandbox,
-    );
+    run(`loadExcelJS = () => Promise.reject(new Error('ExcelJS load failed'));`);
   }
 
-  const run = (code) => vm.runInContext(code, sandbox);
-  return { run, downloads, alerts, sandbox };
+  return { run, downloads, alerts };
 }
 
 const FORMS = [

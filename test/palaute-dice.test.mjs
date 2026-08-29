@@ -9,43 +9,25 @@
 // That fallback is the part #1517 flags as uncovered, plus the quirk that two
 // strings sharing a character can still score 0 (e.g. 'a' vs 'ab').
 //
-// Same no-deps harness as palaute-labels.test.mjs: the page's real inline <script>
-// runs under node:vm against the stub DOM with ZERO changes to palaute.html. norm,
-// bigrams and diceSimilarity are hoisted top-level function declarations, initialized
-// before the boot code that may throw against the partial DOM stub — so they're
-// reachable from later runInContext() calls even though boot is wrapped in try/catch.
+// Same no-deps harness as palaute-labels.test.mjs: loadPage runs the page's
+// real inline <script> under node:vm against the stub DOM with ZERO changes to
+// palaute.html. norm, bigrams and diceSimilarity are hoisted top-level function
+// declarations, initialized before the boot code that may throw against the
+// partial DOM stub — so they're reachable from later run() calls.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 
-// Grab the inline <script> (the ExcelJS CDN tag has a `src` attr, so `<script>`
-// with an immediate `>` only matches the page's own code block).
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no inline <script> block found in palaute.html');
-  return m[1];
-}
-
-const sandbox = createSandbox({});
-vm.createContext(sandbox);
-try {
-  vm.runInContext(extractScript(readFileSync(palautePath, 'utf8')), sandbox, {
-    filename: 'palaute.html#script',
-  });
-} catch {
-  // Load-time DOM-stub miss in boot — tolerated; norm/bigrams/diceSimilarity init'd.
-}
+const { run } = loadPage(palautePath);
 
 // Local alias keeps the test names terse; the SUT symbol is diceSimilarity.
-const dice = (a, b) => vm.runInContext(`diceSimilarity(${JSON.stringify(a)}, ${JSON.stringify(b)})`, sandbox);
+const dice = (a, b) => run(`diceSimilarity(${JSON.stringify(a)}, ${JSON.stringify(b)})`);
 
 // --- the empty-bigram fallback (the uncovered branch #1517 names) ------------
 

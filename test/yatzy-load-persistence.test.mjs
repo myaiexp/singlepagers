@@ -10,38 +10,19 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
-
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block found in yatzy.html');
-  return m[1];
-}
 
 // Run the page's real <script> against the no-deps DOM stub, then return the
 // resulting localStorage. Any late DOM-stub miss is tolerated: loadPlayerNames
 // (and stats migration) runs early in init(), so persistence is fixed by the
 // time control returns here.
 function simulateLoad(seed) {
-  const code = extractScript(readFileSync(yatzyPath, 'utf8'));
-  const sandbox = createSandbox(seed);
-  sandbox.crypto = globalThis.crypto;
-  sandbox.Math = Math;
-  sandbox.Date = Date;
-  sandbox.JSON = JSON;
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(code, sandbox, { filename: 'yatzy.html#script' });
-  } catch (err) {
-    console.warn(`[smoke] script threw during simulated load (tolerated): ${err.message}`);
-  }
+  const { sandbox } = loadPage(yatzyPath, { seed });
   return sandbox.localStorage;
 }
 

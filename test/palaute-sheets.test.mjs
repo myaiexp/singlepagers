@@ -4,80 +4,30 @@
 // bug in the three sheet builders (Vastaukset / Yhteenveto / Avoimet teemat) fails
 // loudly instead of producing a silently misaligned spreadsheet.
 //
-// Same no-deps harness as palaute-labels.test.mjs: the page's real <script> runs
-// under node:vm against the stub DOM. ExcelJS, Blob and URL are injected into the
-// sandbox so loadExcelJS() short-circuits (no network) and downloadBlob() is inert.
-// The stub captures every addWorksheet(name)/addRow(row); styling calls hit a
-// forgiving proxy and are ignored — only the data wiring is under test here.
+// Same no-deps harness as palaute-labels.test.mjs: loadPage runs the page's
+// real <script> under node:vm against the stub DOM. ExcelJS, Blob and URL are
+// injected so loadExcelJS() short-circuits (no network) and downloadBlob() is
+// inert. The shared stub captures every addWorksheet(name)/addRow(row); styling
+// calls hit a forgiving proxy and are ignored — only the data wiring is under
+// test here.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage, createExcelJSStub } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no inline <script> block found in palaute.html');
-  return m[1];
-}
-
-// A forgiving chainable proxy: any property reads as a fake row/cell, any method
-// call returns another proxy, any assignment (cell.font = …) is accepted. Lets the
-// sheet builders' style() closures run untouched without modelling ExcelJS styling.
-function forgiving() {
-  return new Proxy({ getCell: () => forgiving(), getRow: () => forgiving() }, {
-    get(t, p) {
-      if (p in t) return t[p];
-      if (typeof p === 'symbol') return undefined;
-      return () => forgiving();
-    },
-    set(t, p, v) { t[p] = v; return true; },
-  });
-}
-
-// Recording ExcelJS stand-in: each worksheet keeps the exact rows it was given.
-function makeExcelJS() {
-  const workbooks = [];
-  function makeWorksheet(name) {
-    const rows = [];
-    return {
-      name, rows,
-      addRow(r) { rows.push(r); return forgiving(); },
-      getRow: () => forgiving(),
-      getColumn: () => forgiving(),
-      getCell: () => forgiving(),
-      addConditionalFormatting() {},
-      mergeCells() {},
-    };
-  }
-  class Workbook {
-    constructor() { this.worksheets = []; workbooks.push(this); }
-    addWorksheet(name) { const ws = makeWorksheet(name); this.worksheets.push(ws); return ws; }
-    get xlsx() { return { writeBuffer: async () => new Uint8Array(0) }; }
-  }
-  return { ExcelJS: { Workbook }, workbooks };
-}
-
-const { ExcelJS, workbooks } = makeExcelJS();
-const sandbox = createSandbox({});
-sandbox.ExcelJS = ExcelJS;
-sandbox.Blob = function Blob() {};
-sandbox.URL = { createObjectURL: () => 'blob:stub', revokeObjectURL() {} };
-vm.createContext(sandbox);
-try {
-  vm.runInContext(extractScript(readFileSync(palautePath, 'utf8')), sandbox, {
-    filename: 'palaute.html#script',
-  });
-} catch {
-  // Load-time DOM-stub miss in boot — tolerated; the export functions are init'd.
-}
-const run = (code) => vm.runInContext(code, sandbox);
+const { ExcelJS, workbooks } = createExcelJSStub();
+const { run } = loadPage(palautePath, {
+  patch(sandbox) {
+    sandbox.ExcelJS = ExcelJS;
+    sandbox.Blob = function Blob() {};
+    sandbox.URL = { createObjectURL: () => 'blob:stub', revokeObjectURL() {} };
+  },
+});
 
 // Three forms with known values. Note f1.best "Hyvä tilaisuus" and f2.best
 // "hyvä tilaisuus" differ only in case — they must MERGE in the themes sheet (#16).

@@ -5,38 +5,25 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage as bootPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 const STORAGE_KEY = 'palaute_huippu2026_v1';
 const RECOVERY_KEY = STORAGE_KEY + '_recovery';
 
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no inline <script> block found in palaute.html');
-  return m[1];
-}
-
 function loadPage(seed = {}, { confirmValue = false } = {}) {
   const alerts = [];
   const confirmCtl = { value: confirmValue };
-  const sandbox = createSandbox(seed);
-  sandbox.alert = (msg) => { alerts.push(String(msg)); };
-  sandbox.confirm = () => confirmCtl.value;
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(extractScript(readFileSync(palautePath, 'utf8')), sandbox, {
-      filename: 'palaute.html#script',
-    });
-  } catch {
-    // Load-time DOM-stub miss in boot — tolerated; decls below are initialized.
-  }
-  const run = (code) => vm.runInContext(code, sandbox);
+  const { sandbox, run } = bootPage(palautePath, {
+    seed,
+    patch(s) {
+      s.alert = (msg) => { alerts.push(String(msg)); };
+      s.confirm = () => confirmCtl.value;
+    },
+  });
   const runSafe = (code) => {
     try { return run(code); } catch { return undefined; }
   };

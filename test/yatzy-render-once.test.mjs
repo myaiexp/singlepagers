@@ -7,20 +7,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
-
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block found in yatzy.html');
-  return m[1];
-}
 
 // Load the page script with a synchronous setTimeout so rollDice()'s deferred callback
 // (where the dice settle and the scorecard renders) runs inline — the dom-stub's default
@@ -30,15 +22,11 @@ function extractScript(html) {
 // rollDice/renderScorecard/enableScoring are defined regardless, and rollsRemaining keeps
 // its initial value of 3 (init's own first roll never ran).
 function loadGame() {
-  const code = extractScript(readFileSync(yatzyPath, 'utf8'));
-  const sandbox = createSandbox({});
-  sandbox.setTimeout = (fn) => { if (typeof fn === 'function') fn(); return 0; };
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(code, sandbox, { filename: 'yatzy.html#script' });
-  } catch (err) {
-    console.warn(`[render-once] init threw during simulated load (tolerated): ${err.message}`);
-  }
+  const { sandbox } = loadPage(yatzyPath, {
+    patch(s) {
+      s.setTimeout = (fn) => { if (typeof fn === 'function') fn(); return 0; };
+    },
+  });
   return sandbox;
 }
 

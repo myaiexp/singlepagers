@@ -2,44 +2,25 @@
 // the expected attendance/recommend mappings, AND that renderReview is routed
 // through those helpers rather than reimplementing the lookup inline.
 //
-// Same no-deps approach as yatzy-scoring.test.mjs: the page's real <script> runs
-// under node:vm against the stub DOM, with ZERO changes to palaute.html. attLabel,
-// recLabel and renderReview are top-level function declarations (hoisted); reviewEl
-// is a top-level `const` and forms a top-level `let` — all reachable from later
-// runInContext() calls in the same realm. The boot code (renderEntry/updateCount)
-// may touch DOM the stub doesn't fully model and throw, but every declaration these
-// tests use is initialized before that point, so the throw is irrelevant.
+// Same no-deps approach as yatzy-scoring.test.mjs: loadPage runs the page's
+// real <script> under node:vm against the stub DOM, with ZERO changes to
+// palaute.html. attLabel, recLabel and renderReview are top-level function
+// declarations (hoisted); reviewEl is a top-level `const` and forms a top-level
+// `let` — all reachable from later run() calls in the same realm. The boot
+// code (renderEntry/updateCount) may touch DOM the stub doesn't fully model
+// and throw, but every declaration these tests use is initialized before that
+// point, so the throw is irrelevant.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 
-// Grab the inline <script> (the ExcelJS CDN tag has a `src` attr, so `<script>`
-// with an immediate `>` only matches the page's own code block).
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no inline <script> block found in palaute.html');
-  return m[1];
-}
-
-const sandbox = createSandbox({});
-vm.createContext(sandbox);
-try {
-  vm.runInContext(extractScript(readFileSync(palautePath, 'utf8')), sandbox, {
-    filename: 'palaute.html#script',
-  });
-} catch {
-  // Load-time DOM-stub miss in boot — tolerated; the decls below are initialized.
-}
-
-const run = (code) => vm.runInContext(code, sandbox);
+const { run } = loadPage(palautePath);
 
 // --- attLabel / recLabel: the mapping itself --------------------------------
 

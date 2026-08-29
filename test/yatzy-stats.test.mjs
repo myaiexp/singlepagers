@@ -7,70 +7,47 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
-
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block found in yatzy.html');
-  return m[1];
-}
 
 // Fresh sandbox per test: empty localStorage, page script loaded. init() throws
 // partway under the stub (reference-panel DOM); tolerated — the stats functions
 // are hoisted declarations and fully defined regardless. After load, seat ids
 // exist (loadPlayerNames ran during init or we seed them).
 function loadGame() {
-  const sandbox = createSandbox({});
-  // Prefer real UUIDs when available so ids look like production
-  sandbox.crypto = globalThis.crypto;
-  sandbox.Math = Math;
-  sandbox.Date = Date;
-  sandbox.JSON = JSON;
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(extractScript(readFileSync(yatzyPath, 'utf8')), sandbox, {
-      filename: 'yatzy.html#script',
-    });
-  } catch {
-    // Load-time DOM-stub miss — tolerated; stats declarations are initialized.
-  }
+  const { run } = loadPage(yatzyPath);
   // Ensure seats have stable ids + known names (init may have partially run)
-  vm.runInContext(
+  run(
     `players = {
        player1: { id: players?.player1?.id || newPlayerId(), name: 'Alice' },
        player2: { id: players?.player2?.id || newPlayerId(), name: 'Bob' }
      };
      syncPlayerNamesView();
      savePlayersToStorage();`,
-    sandbox,
   );
-  return sandbox;
+  return { run };
 }
 
 // Record one finished game. winner: 0 tie, 1 player1, 2 player2.
-function playGame(sandbox, { winner, p1Score, p2Score, p1Bonus = false, p2Bonus = false, p1Yatzy = false, p2Yatzy = false, rolls = 13 }) {
-  vm.runInContext(
+function playGame({ run }, { winner, p1Score, p2Score, p1Bonus = false, p2Bonus = false, p1Yatzy = false, p2Yatzy = false, rolls = 13 }) {
+  run(
     `currentGameRolls = ${rolls};
      updateGameStatistics(${winner}, ${p1Score}, ${p2Score}, ${p1Bonus}, ${p2Bonus}, ${p1Yatzy}, ${p2Yatzy});`,
-    sandbox,
   );
 }
 
-const seatId = (sandbox, slot) =>
-  vm.runInContext(`players.${slot}.id;`, sandbox);
+const seatId = ({ run }, slot) =>
+  run(`players.${slot}.id;`);
 
-const statsOfId = (sandbox, id) =>
-  vm.runInContext(`getPlayerStats(${JSON.stringify(id)});`, sandbox);
+const statsOfId = ({ run }, id) =>
+  run(`getPlayerStats(${JSON.stringify(id)});`);
 
-const allStats = (sandbox) =>
-  JSON.parse(vm.runInContext(`JSON.stringify(loadAllStats());`, sandbox));
+const allStats = ({ run }) =>
+  JSON.parse(run(`JSON.stringify(loadAllStats());`));
 
 test('a decisive game records one win and one loss', () => {
   const s = loadGame();
@@ -123,7 +100,7 @@ test('renaming a player mid-game keeps stats under the same seat id', () => {
   assert.equal(statsOfId(s, idBefore).gamesPlayed, 1);
 
   // Simulate Edit Names: only the display name changes
-  vm.runInContext(
+  s.run(
     `players.player1.name = 'Alicia';
      syncPlayerNamesView();
      savePlayersToStorage();
@@ -132,7 +109,6 @@ test('renaming a player mid-game keeps stats under the same seat id', () => {
        all[players.player1.id] = { ...all[players.player1.id], name: players.player1.name };
        saveAllStats(all);
      }`,
-    s,
   );
 
   playGame(s, { winner: 1, p1Score: 180, p2Score: 90 });

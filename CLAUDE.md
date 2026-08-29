@@ -40,6 +40,7 @@ self + cdnjs — see the `<meta http-equiv="Content-Security-Policy">` tag in ea
 
 ### Tests
 
-No-deps `node:test` suite under `test/` (run `node --test test/*.test.mjs`). Each
-test extracts a page's inline `<script>` and runs it under `node:vm` against the
-`dom-stub.mjs` fake DOM — zero changes to the HTML under test.
+No-deps `node:test` suite under `test/` (run `node --test test/*.test.mjs`).
+`loadPage` in `test/dom-stub.mjs` extracts each page's inline `<script>` and
+runs it under `node:vm` against a fake DOM — zero changes to the HTML under
+test. Excel export tests share `createExcelJSStub`.
