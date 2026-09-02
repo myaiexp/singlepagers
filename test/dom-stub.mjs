@@ -79,7 +79,7 @@ export function createDocument() {
   };
 }
 
-// Build a vm sandbox with the browser globals yatzy.html's script actually uses.
+// Build a vm sandbox with the browser globals the pages under test (yatzy.html, palaute.html) use.
 // setTimeout is a no-op: load-time smoke only cares about synchronous top-level code,
 // and firing dice-animation callbacks would need far more DOM fidelity.
 // ECMAScript builtins (Math/JSON/Date/crypto) are copied in — vm contexts do not
