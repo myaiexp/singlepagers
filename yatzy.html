@@ -1310,12 +1310,23 @@
             return potentials;
         }
 
+        // The upper-section bonus rule, defined once. Its three consumers —
+        // renderScorecard (what the player sees), calculateGrandTotal (the score
+        // that decides win/loss) and endGame (the bonusCount statistic) — all read
+        // it here, so the threshold and the award cannot drift apart between them.
+        const UPPER_BONUS_THRESHOLD = 63;
+        const UPPER_BONUS_POINTS = 50;
+
+        function bonusFor(upperTotal) {
+            return upperTotal >= UPPER_BONUS_THRESHOLD ? UPPER_BONUS_POINTS : 0;
+        }
+
         function renderScorecard(player, enableClick = false) {
             const scores = player === 1 ? player1Scores : player2Scores;
             const container = document.getElementById(`scorecardBody${player}`);
 
             const upperTotal = calculateUpperTotal(scores);
-            const bonus = upperTotal >= 63 ? 50 : 0;
+            const bonus = bonusFor(upperTotal);
             const grandTotal = calculateGrandTotal(scores);
 
             // Potentials show only for the active player after a roll; compute the
@@ -1330,7 +1341,7 @@
                     <div class="score-value">${upperTotal}</div>
                 </div>
                 <div class="score-row bonus-row">
-                    <div class="score-label">Bonus (≥63)</div>
+                    <div class="score-label">Bonus (≥${UPPER_BONUS_THRESHOLD})</div>
                     <div class="score-value">${bonus}</div>
                 </div>
             `;
@@ -1353,7 +1364,7 @@
 
         function calculateGrandTotal(scores) {
             const upperTotal = calculateUpperTotal(scores);
-            const bonus = upperTotal >= 63 ? 50 : 0;
+            const bonus = bonusFor(upperTotal);
             const lowerTotal = scores.lower.reduce((sum, cat) => sum + (cat.value || 0), 0);
             return upperTotal + bonus + lowerTotal;
         }
@@ -1484,8 +1495,8 @@
             // Calculate bonuses and yatzys for statistics
             const p1UpperTotal = calculateUpperTotal(player1Scores);
             const p2UpperTotal = calculateUpperTotal(player2Scores);
-            const p1Bonus = p1UpperTotal >= 63;
-            const p2Bonus = p2UpperTotal >= 63;
+            const p1Bonus = bonusFor(p1UpperTotal) > 0;
+            const p2Bonus = bonusFor(p2UpperTotal) > 0;
             const p1Yatzy = player1Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
             const p2Yatzy = player2Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
             
