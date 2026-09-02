@@ -886,16 +886,62 @@
             };
         }
 
+        // ===== PERSISTENT STORES =====
+
+        const STATS_KEY = 'yatzy_statistics';
+        const PLAYERS_KEY = 'yatzy_players';
+        const LEGACY_NAMES_KEY = 'yatzy_playerNames'; // pre-seat-id names, migrated once
+        const RECOVERY_SUFFIX = '_recovery';
+
+        // Keys whose stored blob could not be read this session. An unreadable blob
+        // is still the only copy of that data, so writeStore diverts to
+        // "<key>_recovery" rather than overwriting it, and readStore reads that copy
+        // in its place — otherwise every reload would fork fresh seat ids and start
+        // the counters over. Same remedy as palaute.html's STORAGE_RECOVERY_KEY.
+        const unreadableStores = new Set();
+
+        function markUnreadable(key) {
+            if (unreadableStores.has(key)) return;
+            unreadableStores.add(key);
+            alert(`⚠ Saved data under "${key}" could not be read — it looks corrupted.\n\n` +
+                  `The original is being left untouched so it can still be recovered. ` +
+                  `New data is saved separately under "${key}${RECOVERY_SUFFIX}".`);
+        }
+
+        // Read one JSON store. Returns the parsed value, or undefined when there is
+        // nothing usable. `isValid` rejects a blob that parses but is not the shape
+        // this store holds — equally unusable, and equally not ours to destroy.
+        function readStore(key, isValid) {
+            const attempt = (k) => {
+                let raw;
+                try { raw = localStorage.getItem(k); } catch { return undefined; }
+                if (raw === null) return undefined;                      // nothing stored
+                let parsed;
+                try { parsed = JSON.parse(raw); } catch { return null; } // corrupt
+                return isValid(parsed) ? parsed : null;
+            };
+            const value = attempt(key);
+            if (value !== null) return value;
+            markUnreadable(key);
+            const recovered = attempt(key + RECOVERY_SUFFIX);
+            return recovered === null ? undefined : recovered;
+        }
+
+        // Write one JSON store, diverting to the recovery copy while the canonical
+        // blob is unreadable so a save can never destroy it.
+        function writeStore(key, value) {
+            const target = unreadableStores.has(key) ? key + RECOVERY_SUFFIX : key;
+            localStorage.setItem(target, JSON.stringify(value));
+        }
+
+        const isStatsMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
         function loadAllStats() {
-            try {
-                return JSON.parse(localStorage.getItem('yatzy_statistics') || '{}') || {};
-            } catch {
-                return {};
-            }
+            return readStore(STATS_KEY, isStatsMap) || {};
         }
 
         function saveAllStats(allStats) {
-            localStorage.setItem('yatzy_statistics', JSON.stringify(allStats));
+            writeStore(STATS_KEY, allStats);
         }
 
         // Rewrite name-keyed legacy stats under seat ids. Modern rows always carry
@@ -957,35 +1003,30 @@
             };
         }
 
+        const isSeatMap = (v) => !!(v?.player1?.id && v?.player2?.id);
+        const isLegacyNames = (v) =>
+            !!v && typeof v === 'object' &&
+            (typeof v.player1 === 'string' || typeof v.player2 === 'string');
+
         function loadPlayerNames() {
-            const rawPlayers = localStorage.getItem('yatzy_players');
-            if (rawPlayers) {
-                try {
-                    const parsed = JSON.parse(rawPlayers);
-                    if (parsed?.player1?.id && parsed?.player2?.id) {
-                        players = {
-                            player1: { id: parsed.player1.id, name: parsed.player1.name || 'Player 1' },
-                            player2: { id: parsed.player2.id, name: parsed.player2.name || 'Player 2' }
-                        };
-                        syncPlayerNamesView();
-                        savePlayersToStorage(); // refresh legacy name key in sync
-                        updatePlayerNamesDisplay();
-                        return;
-                    }
-                } catch { /* fall through to migrate */ }
+            const parsed = readStore(PLAYERS_KEY, isSeatMap);
+            if (parsed) {
+                players = {
+                    player1: { id: parsed.player1.id, name: parsed.player1.name || 'Player 1' },
+                    player2: { id: parsed.player2.id, name: parsed.player2.name || 'Player 2' }
+                };
+                syncPlayerNamesView();
+                savePlayersToStorage(); // refresh legacy name key in sync
+                updatePlayerNamesDisplay();
+                return;
             }
 
             // Migrate legacy name-only storage (or first run)
             let n1 = 'Player 1';
             let n2 = 'Player 2';
-            const legacy = localStorage.getItem('yatzy_playerNames');
-            if (legacy) {
-                try {
-                    const names = JSON.parse(legacy);
-                    if (names?.player1) n1 = names.player1;
-                    if (names?.player2) n2 = names.player2;
-                } catch { /* defaults */ }
-            }
+            const names = readStore(LEGACY_NAMES_KEY, isLegacyNames);
+            if (names?.player1) n1 = names.player1;
+            if (names?.player2) n2 = names.player2;
             players = {
                 player1: { id: newPlayerId(), name: n1 },
                 player2: { id: newPlayerId(), name: n2 }
@@ -997,9 +1038,9 @@
         }
 
         function savePlayersToStorage() {
-            localStorage.setItem('yatzy_players', JSON.stringify(players));
+            writeStore(PLAYERS_KEY, players);
             // Keep legacy key in sync for older readers / smoke tests that seed it
-            localStorage.setItem('yatzy_playerNames', JSON.stringify(playerNames));
+            writeStore(LEGACY_NAMES_KEY, playerNames);
         }
 
         function updatePlayerNamesDisplay() {
@@ -1176,7 +1217,12 @@
 
         function confirmResetStats() {
             if (confirm('Are you sure you want to reset ALL statistics? This cannot be undone!')) {
-                localStorage.removeItem('yatzy_statistics');
+                // "ALL" includes a recovery copy left behind by an unreadable blob;
+                // clearing the canonical key alone would let it be read back. With
+                // both gone the store is readable again, so writes return to it.
+                localStorage.removeItem(STATS_KEY);
+                localStorage.removeItem(STATS_KEY + RECOVERY_SUFFIX);
+                unreadableStores.delete(STATS_KEY);
                 renderStatistics();
                 alert('All statistics have been reset.');
             }
@@ -1310,12 +1356,23 @@
             return potentials;
         }
 
+        // The upper-section bonus rule, defined once. Its three consumers —
+        // renderScorecard (what the player sees), calculateGrandTotal (the score
+        // that decides win/loss) and endGame (the bonusCount statistic) — all read
+        // it here, so the threshold and the award cannot drift apart between them.
+        const UPPER_BONUS_THRESHOLD = 63;
+        const UPPER_BONUS_POINTS = 50;
+
+        function bonusFor(upperTotal) {
+            return upperTotal >= UPPER_BONUS_THRESHOLD ? UPPER_BONUS_POINTS : 0;
+        }
+
         function renderScorecard(player, enableClick = false) {
             const scores = player === 1 ? player1Scores : player2Scores;
             const container = document.getElementById(`scorecardBody${player}`);
 
             const upperTotal = calculateUpperTotal(scores);
-            const bonus = upperTotal >= 63 ? 50 : 0;
+            const bonus = bonusFor(upperTotal);
             const grandTotal = calculateGrandTotal(scores);
 
             // Potentials show only for the active player after a roll; compute the
@@ -1330,7 +1387,7 @@
                     <div class="score-value">${upperTotal}</div>
                 </div>
                 <div class="score-row bonus-row">
-                    <div class="score-label">Bonus (≥63)</div>
+                    <div class="score-label">Bonus (≥${UPPER_BONUS_THRESHOLD})</div>
                     <div class="score-value">${bonus}</div>
                 </div>
             `;
@@ -1353,7 +1410,7 @@
 
         function calculateGrandTotal(scores) {
             const upperTotal = calculateUpperTotal(scores);
-            const bonus = upperTotal >= 63 ? 50 : 0;
+            const bonus = bonusFor(upperTotal);
             const lowerTotal = scores.lower.reduce((sum, cat) => sum + (cat.value || 0), 0);
             return upperTotal + bonus + lowerTotal;
         }
@@ -1484,8 +1541,8 @@
             // Calculate bonuses and yatzys for statistics
             const p1UpperTotal = calculateUpperTotal(player1Scores);
             const p2UpperTotal = calculateUpperTotal(player2Scores);
-            const p1Bonus = p1UpperTotal >= 63;
-            const p2Bonus = p2UpperTotal >= 63;
+            const p1Bonus = bonusFor(p1UpperTotal) > 0;
+            const p2Bonus = bonusFor(p2UpperTotal) > 0;
             const p1Yatzy = player1Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
             const p2Yatzy = player2Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
             

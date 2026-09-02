@@ -10,6 +10,22 @@
 - Deployed to VPS via git push — HTML files copied directly to web root
 - Live at: `https://mase.fi/yatzy.html`
 
+### Shared pattern: never overwrite an unreadable localStorage blob
+
+localStorage is the only copy of a page's data, so a blob that fails to parse is
+damaged, not absent — and writing over it destroys the last chance of recovery.
+Both apps therefore mark such a key unreadable, tell the user once, and divert
+every later write to `<key>_recovery`, which is read back in the canonical key's
+place so ids and counters stay stable across reloads instead of forking on every
+load. `palaute.html` spells it out inline (`storageUnreadable` +
+`STORAGE_RECOVERY_KEY`); `yatzy.html` generalises it into `readStore` /
+`writeStore` over an `unreadableStores` set, covering `yatzy_statistics`,
+`yatzy_players` and legacy `yatzy_playerNames`.
+
+A "reset" action must clear the recovery copy alongside the canonical key, or the
+diverted data is simply read back afterwards. Do not "simplify" a diverted write
+back into a direct `setItem` — that is the bug this exists to prevent.
+
 ### Documented exception: ExcelJS in `palaute.html`
 
 `palaute.html` is the one file with an optional external dependency. It loads
