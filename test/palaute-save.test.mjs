@@ -142,18 +142,18 @@ test('clearAll wipes forms and storage when confirmed', () => {
 
 test('clearAll while the store is unreadable wipes both keys and returns writes to the canonical key', () => {
   const blob = '{not-json';
-  const { run, runSafe, sandbox, confirmCtl } = loadPage(
+  const { run, sandbox, confirmCtl } = loadPage(
     { [STORAGE_KEY]: blob },
     { confirmValue: false },
   );
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   assert.equal(run('storageUnreadable'), true);
   assert.equal(sandbox.localStorage.getItem(STORAGE_KEY), blob);
   assert.ok(stored(sandbox, RECOVERY_KEY), 'new row diverted to recovery');
 
   confirmCtl.value = true;
-  runSafe('clearAll()');
+  run('clearAll()');
 
   assert.equal(run('forms.length'), 0);
   assert.equal(run('storageUnreadable'), false,
@@ -164,7 +164,7 @@ test('clearAll while the store is unreadable wipes both keys and returns writes 
     'recovery copy must go too, or the next load reads diverted rows back');
 
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   assert.equal(run('forms.length'), 1);
   assert.equal(stored(sandbox).length, 1,
     'the next save must land on the canonical key');
@@ -238,11 +238,11 @@ test('persist alerts on quota-exceeded and leaves in-memory forms intact', () =>
 // `editingId = null` reset used to pass, which would strand the page in edit
 // mode after a cancel (the next save would overwrite the original row).
 test('cancelEdit clears editingId, blanks current, and shows the review view', () => {
-  const { run, runSafe } = loadPage();
+  const { run } = loadPage();
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   const originalId = run('forms[0].id');
-  runSafe('editForm(forms[0].id)');
+  run('editForm(forms[0].id)');
   assert.equal(run('editingId'), originalId);
   assert.equal(run('current.name'), 'A');
 
