@@ -3,12 +3,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { extractInlineScript, loadPage, createExcelJSStub } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
+const yatzyPath = join(here, '..', 'yatzy.html');
 
 test('extractInlineScript returns the attribute-free <script> body', () => {
   const html = '<html><script src="https://cdn.example/lib.js"></script><script>var x = 1;</script></html>';
@@ -41,6 +44,27 @@ test('loadPage applies patch before the page script runs', () => {
 test('loadPage seeds localStorage', () => {
   const { sandbox } = loadPage(palautePath, { seed: { k: 'v' } });
   assert.equal(sandbox.localStorage.getItem('k'), 'v');
+});
+
+test('loadPage records a load-time exception as loadError', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dom-stub-'));
+  const htmlPath = join(dir, 'throws.html');
+  writeFileSync(htmlPath, '<script>throw new Error("boot-fail");</script>');
+  try {
+    const { loadError } = loadPage(htmlPath);
+    assert.ok(loadError, 'loadError must capture the thrown exception');
+    assert.equal(loadError.name, 'Error');
+    assert.equal(loadError.message, 'boot-fail');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('yatzy.html and palaute.html boot without a load-time exception', () => {
+  for (const [name, path] of [['yatzy.html', yatzyPath], ['palaute.html', palautePath]]) {
+    const { loadError } = loadPage(path);
+    assert.equal(loadError, undefined, `${name} threw: ${loadError && loadError.stack}`);
+  }
 });
 
 test('createExcelJSStub records worksheets/rows and returns the given buffer', async () => {

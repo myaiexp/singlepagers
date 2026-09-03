@@ -5,56 +5,38 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import vm from 'node:vm';
-import { createSandbox } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
-function extractScript(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block found in yatzy.html');
-  return m[1];
-}
-
 function loadGame() {
   const timers = [];
   let nextId = 1;
-  const sandbox = createSandbox({});
-  const byId = new Map();
-  const origGet = sandbox.document.getElementById.bind(sandbox.document);
-  sandbox.document.getElementById = (id) => {
-    if (!byId.has(id)) byId.set(id, origGet(id));
-    return byId.get(id);
-  };
-  // Empty NodeList: the default stub yields 5 fake nodes, and
-  // syncReferencePanel then reads catScores[NaN].value and throws
-  // before scoreCategory can reach nextTurn.
-  sandbox.document.querySelectorAll = () => [];
-  sandbox.setTimeout = (fn) => {
-    const id = nextId++;
-    timers.push({ id, fn });
-    return id;
-  };
-  sandbox.clearTimeout = (id) => {
-    const i = timers.findIndex((t) => t.id === id);
-    if (i !== -1) timers.splice(i, 1);
-  };
-  vm.createContext(sandbox);
-  try {
-    vm.runInContext(extractScript(readFileSync(yatzyPath, 'utf8')), sandbox, {
-      filename: 'yatzy.html#script',
-    });
-  } catch (err) {
-    console.warn(`[turn] init threw during simulated load (tolerated): ${err.message}`);
-  }
+  const { sandbox, run } = loadPage(yatzyPath, {
+    patch(s) {
+      const byId = new Map();
+      const origGet = s.document.getElementById.bind(s.document);
+      s.document.getElementById = (id) => {
+        if (!byId.has(id)) byId.set(id, origGet(id));
+        return byId.get(id);
+      };
+      s.setTimeout = (fn) => {
+        const id = nextId++;
+        timers.push({ id, fn });
+        return id;
+      };
+      s.clearTimeout = (id) => {
+        const i = timers.findIndex((t) => t.id === id);
+        if (i !== -1) timers.splice(i, 1);
+      };
+    },
+  });
   // Drop init's opening roll if it queued one, and pin a known pre-roll state.
   timers.length = 0;
-  vm.runInContext(
-    `
+  run(`
     currentPlayer = 1;
     rollsRemaining = 3;
     hasRolled = false;
@@ -64,16 +46,14 @@ function loadGame() {
     player1Scores = JSON.parse(JSON.stringify(scoreCategories));
     player2Scores = JSON.parse(JSON.stringify(scoreCategories));
     isRolling = false;
-    `,
-    sandbox,
-  );
+  `);
   const flush = () => {
     const batch = timers.splice(0);
     for (const t of batch) {
       if (typeof t.fn === 'function') t.fn();
     }
   };
-  const read = (expr) => vm.runInContext(expr, sandbox);
+  const read = (expr) => run(expr);
   const rollBtn = () => sandbox.document.getElementById('rollBtn');
   return { sandbox, flush, timers, read, rollBtn };
 }

@@ -67,7 +67,12 @@ export function createDocument() {
   return {
     getElementById: () => makeElement(),
     querySelector: () => makeElement(),
-    querySelectorAll: () => makeNodeList(),
+    querySelectorAll(selector) {
+      // No HTML is parsed, so reference-panel tiles do not exist. The default
+      // 5-node list makes syncReferencePanel read catScores[NaN] and abort init.
+      if (String(selector).includes('reference-item')) return [];
+      return makeNodeList();
+    },
     getElementsByClassName: () => makeNodeList(),
     getElementsByTagName: () => makeNodeList(),
     createElement: () => makeElement(),
@@ -81,7 +86,10 @@ export function createDocument() {
 
 // Build a vm sandbox with the browser globals the pages under test (yatzy.html, palaute.html) use.
 // setTimeout is a no-op: load-time smoke only cares about synchronous top-level code,
-// and firing dice-animation callbacks would need far more DOM fidelity.
+// and firing dice-animation callbacks would need far more DOM fidelity. A clean
+// yatzy boot therefore leaves isRolling true (init's opening roll starts but never
+// settles); tests that call rollDice after load must fire or replace setTimeout,
+// or reset isRolling.
 // ECMAScript builtins (Math/JSON/Date/crypto) are copied in — vm contexts do not
 // inherit them, and seat-id generation / scoring need them.
 export function createSandbox(seed) {
@@ -119,21 +127,22 @@ export function extractInlineScript(html, filename = 'html') {
 }
 
 // Load a page's inline script into a fresh sandbox. `patch(sandbox)` runs before
-// the script so tests can inject ExcelJS, timers, or spies. Load-time DOM-stub
-// misses are swallowed: page declarations the tests call are initialized first.
+// the script so tests can inject ExcelJS, timers, or spies. A load-time exception
+// is captured as `loadError` so callers can assert the page booted cleanly.
 export function loadPage(htmlPath, { seed = {}, patch } = {}) {
   const filename = basename(htmlPath);
   const code = extractInlineScript(readFileSync(htmlPath, 'utf8'), filename);
   const sandbox = createSandbox(seed);
   if (typeof patch === 'function') patch(sandbox);
   vm.createContext(sandbox);
+  let loadError;
   try {
     vm.runInContext(code, sandbox, { filename: `${filename}#script` });
-  } catch {
-    // Load-time DOM-stub miss — tolerated; declarations used by tests are initialized.
+  } catch (err) {
+    loadError = err;
   }
   const run = (src) => vm.runInContext(src, sandbox);
-  return { sandbox, run };
+  return { sandbox, run, loadError };
 }
 
 // Chainable stand-in for ExcelJS cells/rows/columns so style() closures run

@@ -7,10 +7,7 @@
 // to yatzy.html. The scoring functions are top-level declarations, and
 // diceValues / player1Scores / player2Scores are top-level `let` bindings —
 // both reachable from later run() calls in the same realm, so we drive the
-// engine by assigning the state a function reads, then calling it. The load
-// throws on a late DOM-stub miss, but every scoring declaration is
-// hoisted/initialized before that point (verified), so the throw is irrelevant
-// to these tests.
+// engine by assigning the state a function reads, then calling it.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

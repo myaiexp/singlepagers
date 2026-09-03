@@ -16,11 +16,8 @@ const yatzyPath = join(here, '..', 'yatzy.html');
 
 // Load the page script with a synchronous setTimeout so rollDice()'s deferred callback
 // (where the dice settle and the scorecard renders) runs inline — the dom-stub's default
-// setTimeout is a no-op that would skip the roll body. init() also touches reference-panel
-// DOM the no-deps stub doesn't fully model and throws partway; that's tolerated like the
-// load-persistence smoke test. All page functions are hoisted function declarations, so
-// rollDice/renderScorecard/enableScoring are defined regardless, and rollsRemaining keeps
-// its initial value of 3 (init's own first roll never ran).
+// setTimeout is a no-op that would skip the roll body. init()'s opening roll therefore
+// also settles, so the test spies renderScorecard after that first roll has already run.
 function loadGame() {
   const { sandbox } = loadPage(yatzyPath, {
     patch(s) {

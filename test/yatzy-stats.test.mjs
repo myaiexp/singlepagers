@@ -14,10 +14,8 @@ import { loadPage, createDocument } from './dom-stub.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
-// Fresh sandbox per test: empty localStorage, page script loaded. init() throws
-// partway under the stub (reference-panel DOM); tolerated — the stats functions
-// are hoisted declarations and fully defined regardless. After load, seat ids
-// exist (loadPlayerNames ran during init or we seed them).
+// Fresh sandbox per test: empty localStorage, page script loaded. After load,
+// seat ids exist (loadPlayerNames ran during init); we then pin known names.
 //
 // getElementById is identity-preserving (same pattern as yatzy-bonus.test.mjs)
 // so applyPlayerNameEdit can read back the name inputs we just filled.
@@ -35,7 +33,7 @@ function loadGame() {
       };
     },
   });
-  // Ensure seats have stable ids + known names (init may have partially run)
+  // Pin known names on the seats init already created.
   run(
     `players = {
        player1: { id: players?.player1?.id || newPlayerId(), name: 'Alice' },

@@ -24,10 +24,7 @@ function loadPage(seed = {}, { confirmValue = false } = {}) {
       s.confirm = () => confirmCtl.value;
     },
   });
-  const runSafe = (code) => {
-    try { return run(code); } catch { return undefined; }
-  };
-  return { run, runSafe, sandbox, alerts, confirmCtl };
+  return { run, sandbox, alerts, confirmCtl };
 }
 
 function fillCurrent(run) {
@@ -47,9 +44,9 @@ function stored(sandbox, key = STORAGE_KEY) {
 }
 
 test('saveForm persists a new form; load() round-trips it from localStorage', () => {
-  const { run, runSafe, sandbox } = loadPage();
+  const { run, sandbox } = loadPage();
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
 
   assert.equal(run('forms.length'), 1);
   assert.equal(run('typeof forms[0].id'), 'string');
@@ -74,18 +71,18 @@ test('saveForm persists a new form; load() round-trips it from localStorage', ()
 });
 
 test('editForm + saveForm keeps one row, blanks current, and does not alias nested objects', () => {
-  const { run, runSafe } = loadPage();
+  const { run } = loadPage();
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   const originalId = run('forms[0].id');
 
-  runSafe('editForm(forms[0].id)');
+  run('editForm(forms[0].id)');
   assert.equal(run('editingId'), originalId);
   // Working copy is already detached at edit start; hold the live ratings
   // array across save so a shallow { ...current } assign is visible.
   run('heldRatings = current.ratings; heldFree = current.free;');
   run('current.ratings[0] = 1; current.free.best = "Muokattu";');
-  runSafe('saveForm()');
+  run('saveForm()');
 
   assert.equal(run('forms.length'), 1, 'edit-save must not push a duplicate');
   assert.equal(run('forms[0].id'), originalId);
@@ -101,7 +98,7 @@ test('editForm + saveForm keeps one row, blanks current, and does not alias nest
   assert.equal(run('heldFree === forms[0].free'), false,
     'forms[idx] must deep-copy free, not shallow-spread them');
 
-  runSafe('showEntry()');
+  run('showEntry()');
   run('current.ratings[0] = 2; current.free.best = "uusi";');
   assert.equal(run('forms[0].ratings[0]'), 1,
     'mutating current after returning to entry must not rewrite the saved row');
@@ -109,43 +106,43 @@ test('editForm + saveForm keeps one row, blanks current, and does not alias nest
 });
 
 test('deleteForm removes the row and persists when confirmed', () => {
-  const { run, runSafe, sandbox, confirmCtl } = loadPage();
+  const { run, sandbox, confirmCtl } = loadPage();
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   const id = run('forms[0].id');
 
   confirmCtl.value = false;
-  runSafe('deleteForm(forms[0].id)');
+  run('deleteForm(forms[0].id)');
   assert.equal(run('forms.length'), 1, 'declined confirm is a no-op');
   assert.equal(stored(sandbox).length, 1);
 
   confirmCtl.value = true;
-  runSafe(`deleteForm(${JSON.stringify(id)})`);
+  run(`deleteForm(${JSON.stringify(id)})`);
   assert.equal(run('forms.length'), 0);
   assert.deepEqual(stored(sandbox), []);
 });
 
 test('clearAll wipes forms and storage when confirmed', () => {
-  const { run, runSafe, sandbox, confirmCtl } = loadPage();
+  const { run, sandbox, confirmCtl } = loadPage();
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   assert.equal(run('forms.length'), 2);
 
   confirmCtl.value = false;
-  runSafe('clearAll()');
+  run('clearAll()');
   assert.equal(run('forms.length'), 2);
 
   confirmCtl.value = true;
-  runSafe('clearAll()');
+  run('clearAll()');
   assert.equal(run('forms.length'), 0);
   assert.deepEqual(stored(sandbox), []);
 });
 
 test('corrupt localStorage alerts, does not clobber the blob, and persist writes a recovery key', () => {
   const blob = '{not-json';
-  const { run, runSafe, sandbox, alerts } = loadPage({ [STORAGE_KEY]: blob });
+  const { run, sandbox, alerts } = loadPage({ [STORAGE_KEY]: blob });
 
   assert.equal(run('forms.length'), 0, 'unreadable store boots as empty in-memory');
   assert.equal(run('storageUnreadable'), true);
@@ -155,7 +152,7 @@ test('corrupt localStorage alerts, does not clobber the blob, and persist writes
     'load() must not overwrite the unreadable blob');
 
   fillCurrent(run);
-  runSafe('saveForm()');
+  run('saveForm()');
   assert.equal(run('forms.length'), 1, 'in-session save still works');
   assert.equal(sandbox.localStorage.getItem(STORAGE_KEY), blob,
     'persist() must not clobber the corrupt primary key');
