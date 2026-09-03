@@ -1,6 +1,8 @@
 <!doctype html>
 <!-- Browser smoke check for audit #1372: yatzy.html must not wipe localStorage on load. -->
-<!-- Serve this directory over HTTP (same origin as yatzy.html), e.g. helm-preview, then open test/smoke.html. -->
+<!-- After the seat-id migration, stats are re-keyed under UUIDs on first load — -->
+<!-- names stay byte-identical; stats counters survive under a row named Alice. -->
+<!-- Serve the repo root over HTTP (same origin as yatzy.html), then open test/smoke.html. -->
 <html lang="en">
 <head><meta charset="utf-8"><title>yatzy load-persistence smoke</title></head>
 <body>
@@ -9,6 +11,12 @@
 <script>
   const NAMES = JSON.stringify({ player1: 'Alice', player2: 'Bob' });
   const STATS = JSON.stringify({ Alice: { gamesPlayed: 3, wins: 2 } });
+  // Drop leftover modern keys so this run always exercises the legacy-seed path,
+  // even if a previous smoke load already minted yatzy_players.
+  localStorage.removeItem('yatzy_players');
+  localStorage.removeItem('yatzy_players_recovery');
+  localStorage.removeItem('yatzy_statistics_recovery');
+  localStorage.removeItem('yatzy_playerNames_recovery');
   localStorage.setItem('yatzy_playerNames', NAMES);
   localStorage.setItem('yatzy_statistics', STATS);
 
@@ -17,12 +25,26 @@
   iframe.style.cssText = 'position:absolute;left:-9999px;width:0;height:0;border:0';
   iframe.addEventListener('load', () => {
     const names = localStorage.getItem('yatzy_playerNames');
-    const stats = localStorage.getItem('yatzy_statistics');
-    const pass = names === NAMES && stats === STATS;
+    const namesKept = names === NAMES;
+    let statsOk = false;
+    let statsNote = 'LOST';
+    try {
+      const stats = JSON.parse(localStorage.getItem('yatzy_statistics') || 'null');
+      const alice = stats && Object.values(stats).find(s => s && s.name === 'Alice');
+      if (alice && alice.gamesPlayed === 3 && alice.wins === 2 && stats.Alice === undefined) {
+        statsOk = true;
+        statsNote = 'migrated';
+      } else if (stats && stats.Alice) {
+        statsNote = 'still name-keyed';
+      }
+    } catch {
+      statsNote = 'UNPARSEABLE';
+    }
+    const pass = namesKept && statsOk;
     document.getElementById('out').textContent =
       (pass ? 'PASS' : 'FAIL') +
-      '\n  yatzy_playerNames: ' + (names === NAMES ? 'kept' : 'LOST') +
-      '\n  yatzy_statistics:  ' + (stats === STATS ? 'kept' : 'LOST');
+      '\n  yatzy_playerNames: ' + (namesKept ? 'kept' : 'LOST') +
+      '\n  yatzy_statistics:  ' + statsNote;
     document.body.style.background = pass ? '#0a3' : '#a00';
   });
   document.body.appendChild(iframe);

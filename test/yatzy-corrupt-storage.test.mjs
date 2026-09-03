@@ -99,6 +99,14 @@ test('a corrupt legacy names blob is not destroyed while it is the only name cop
   const { ls } = loadWith({ yatzy_playerNames: '{"player1": "Ali' });
   assert.equal(ls.getItem('yatzy_playerNames'), '{"player1": "Ali',
     'the unreadable legacy names blob must survive intact');
+  const recovered = JSON.parse(ls.getItem('yatzy_playerNames_recovery') || 'null');
+  assert.equal(recovered?.player1, 'Player 1',
+    'derived names view must be written to the recovery copy');
+  assert.equal(recovered?.player2, 'Player 2');
+  const seats = JSON.parse(ls.getItem('yatzy_players') || 'null');
+  assert.ok(seats?.player1?.id, 'fresh seat ids must be minted on the canonical players key');
+  assert.ok(seats?.player2?.id);
+  assert.notEqual(seats.player1.id, seats.player2.id);
 });
 
 // --- the healthy path must be unaffected -------------------------------------

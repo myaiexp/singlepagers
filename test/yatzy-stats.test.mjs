@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadPage } from './dom-stub.mjs';
+import { loadPage, createDocument } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
@@ -18,8 +18,23 @@ const yatzyPath = join(here, '..', 'yatzy.html');
 // partway under the stub (reference-panel DOM); tolerated — the stats functions
 // are hoisted declarations and fully defined regardless. After load, seat ids
 // exist (loadPlayerNames ran during init or we seed them).
+//
+// getElementById is identity-preserving (same pattern as yatzy-bonus.test.mjs)
+// so applyPlayerNameEdit can read back the name inputs we just filled.
 function loadGame() {
-  const { run } = loadPage(yatzyPath);
+  const elements = new Map();
+  const { run } = loadPage(yatzyPath, {
+    patch(sb) {
+      const doc = createDocument();
+      sb.document = {
+        ...doc,
+        getElementById(id) {
+          if (!elements.has(id)) elements.set(id, doc.getElementById(id));
+          return elements.get(id);
+        },
+      };
+    },
+  });
   // Ensure seats have stable ids + known names (init may have partially run)
   run(
     `players = {
@@ -92,28 +107,28 @@ test('per-player accumulators track rolls, points, highest, bonus, yatzy', () =>
   assert.equal(a.yatzysScored, 1);
 });
 
-// finding #2963: rename mid-game must not fork stats into a new key
+// finding #2963 / audit #8962: rename mid-game must not fork stats into a new key.
+// Must call the shipped applyPlayerNameEdit — a pasted copy of its body cannot
+// catch a mutant that mints a new seat id on save.
 test('renaming a player mid-game keeps stats under the same seat id', () => {
   const s = loadGame();
   playGame(s, { winner: 1, p1Score: 200, p2Score: 100 });
   const idBefore = seatId(s, 'player1');
   assert.equal(statsOfId(s, idBefore).gamesPlayed, 1);
 
-  // Simulate Edit Names: only the display name changes
   s.run(
-    `players.player1.name = 'Alicia';
-     syncPlayerNamesView();
-     savePlayersToStorage();
-     const all = loadAllStats();
-     if (all[players.player1.id]) {
-       all[players.player1.id] = { ...all[players.player1.id], name: players.player1.name };
-       saveAllStats(all);
-     }`,
+    `document.getElementById('player1Name').value = 'Alicia';
+     document.getElementById('player2Name').value = 'Bob';
+     applyPlayerNameEdit();`,
   );
+
+  const idAfterRename = seatId(s, 'player1');
+  assert.equal(idAfterRename, idBefore, 'seat id must be stable across rename');
+  assert.equal(statsOfId(s, idAfterRename).name, 'Alicia');
 
   playGame(s, { winner: 1, p1Score: 180, p2Score: 90 });
   const idAfter = seatId(s, 'player1');
-  assert.equal(idAfter, idBefore, 'seat id must be stable across rename');
+  assert.equal(idAfter, idBefore, 'seat id must stay put through the next game');
 
   const st = statsOfId(s, idAfter);
   assert.equal(st.gamesPlayed, 2, 'second game accumulates on same entry');
@@ -125,4 +140,75 @@ test('renaming a player mid-game keeps stats under the same seat id', () => {
   assert.equal(bag['Alice'], undefined);
   assert.equal(bag['Alicia'], undefined);
   assert.equal(Object.keys(bag).filter(k => bag[k].gamesPlayed > 0).length, 2); // Alice seat + Bob seat
+});
+
+test('mergeStats adds counters, takes max highestScore, prefers b.name', () => {
+  const s = loadGame();
+  const merged = s.run(`JSON.stringify(mergeStats(
+    { name: 'Alice', gamesPlayed: 2, wins: 1, losses: 1, draws: 0,
+      totalRolls: 20, highestScore: 180, totalPoints: 300, yatzysScored: 0, bonusCount: 1 },
+    { name: 'Alicia', gamesPlayed: 3, wins: 2, losses: 0, draws: 1,
+      totalRolls: 30, highestScore: 250, totalPoints: 400, yatzysScored: 2, bonusCount: 0 }
+  ));`);
+  const row = JSON.parse(merged);
+  assert.equal(row.name, 'Alicia', 'name prefers b');
+  assert.equal(row.gamesPlayed, 5);
+  assert.equal(row.wins, 3);
+  assert.equal(row.losses, 1);
+  assert.equal(row.draws, 1);
+  assert.equal(row.totalRolls, 50);
+  assert.equal(row.highestScore, 250, 'highestScore takes the max, not a sum or b alone');
+  assert.equal(row.totalPoints, 700);
+  assert.equal(row.yatzysScored, 2);
+  assert.equal(row.bonusCount, 1);
+});
+
+test('a name-keyed stats row matching neither seat survives under a new id', () => {
+  const s = loadGame();
+  const aliceId = seatId(s, 'player1');
+  const bobId = seatId(s, 'player2');
+  s.run(
+    `saveAllStats({
+       Charlie: {
+         gamesPlayed: 5, wins: 1, losses: 4, draws: 0,
+         totalRolls: 50, highestScore: 180, totalPoints: 700, yatzysScored: 1, bonusCount: 0
+       }
+     });
+     migrateLegacyNameKeyedStats(players);`,
+  );
+  const bag = allStats(s);
+  assert.equal(bag.Charlie, undefined, 'legacy name key must be gone');
+  const charlieKey = Object.keys(bag).find(k => bag[k].name === 'Charlie');
+  assert.ok(charlieKey, 'orphan row must survive under some key');
+  assert.notEqual(charlieKey, 'Charlie');
+  assert.notEqual(charlieKey, aliceId);
+  assert.notEqual(charlieKey, bobId);
+  assert.equal(bag[charlieKey].gamesPlayed, 5);
+  assert.equal(bag[charlieKey].wins, 1);
+});
+
+test('migrateLegacyNameKeyedStats merges a name-keyed row onto an existing seat-id row', () => {
+  const s = loadGame();
+  const aliceId = seatId(s, 'player1');
+  s.run(
+    `saveAllStats({
+       ${JSON.stringify(aliceId)}: {
+         name: 'Alice', gamesPlayed: 2, wins: 1, losses: 1, draws: 0,
+         totalRolls: 20, highestScore: 200, totalPoints: 300, yatzysScored: 0, bonusCount: 1
+       },
+       Alice: {
+         gamesPlayed: 3, wins: 2, losses: 1, draws: 0,
+         totalRolls: 30, highestScore: 250, totalPoints: 400, yatzysScored: 1, bonusCount: 0
+       }
+     });
+     migrateLegacyNameKeyedStats(players);`,
+  );
+  const bag = allStats(s);
+  assert.equal(bag.Alice, undefined);
+  const alice = bag[aliceId];
+  assert.ok(alice);
+  assert.equal(alice.name, 'Alice');
+  assert.equal(alice.gamesPlayed, 5, 'name-keyed counters must add onto the seat-id row');
+  assert.equal(alice.highestScore, 250);
+  assert.equal(alice.bonusCount, 1);
 });

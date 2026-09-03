@@ -66,5 +66,6 @@ runs it under `node:vm` against a fake DOM — zero changes to the HTML under
 test. Excel export tests share `createExcelJSStub`.
 
 `test/smoke.html` is a manual browser check for the yatzy load-persistence
-invariant — serve the repo over HTTP from the same origin as `yatzy.html` and
-open it; it is not part of the `node --test` run.
+invariant (legacy names stay byte-identical; name-keyed stats migrate under
+seat ids with counters intact). Serve the repo root over HTTP from the same
+origin as `yatzy.html` and open it; it is not part of the `node --test` run.
