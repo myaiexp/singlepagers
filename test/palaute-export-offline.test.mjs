@@ -112,3 +112,41 @@ test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
   assert.doesNotMatch(downloads[0].type || '', /json/i);
   assert.equal(alerts.length, 0, 'no fallback alert when Excel succeeds');
 });
+
+// The empty-store guard is the only thing standing between "nothing to export"
+// and a download of an empty workbook. Removing `if (!forms.length)` used to
+// pass the suite.
+test('exportExcel with zero forms alerts and does not download', async () => {
+  const { run, downloads, alerts } = loadPage({ withExcelJS: true });
+  run('forms = [];');
+  await run('exportExcel()');
+  assert.equal(downloads.length, 0, 'no workbook download for an empty store');
+  assert.ok(
+    alerts.some(a => a.includes('Ei vielä tallennettuja lomakkeita')),
+    'operator is told there is nothing to export',
+  );
+});
+
+// SRI wiring is independent of whether the script actually loads: dropping
+// `s.integrity = EXCELJS_SRI` still produces a working export (and a green
+// suite) while the page starts executing an unverified third-party script.
+test('loadExcelJS pins integrity and anonymous crossOrigin on the injected script', () => {
+  const created = [];
+  const { run } = bootPage(palautePath, {
+    patch(sandbox) {
+      const orig = sandbox.document.createElement;
+      sandbox.document.createElement = (tag) => {
+        const el = orig(tag);
+        created.push({ tag, el });
+        return el;
+      };
+    },
+  });
+  run('loadExcelJS()');
+  const script = created.find(c => c.tag === 'script');
+  assert.ok(script, 'loadExcelJS injects a <script> element');
+  assert.equal(script.el.src, run('EXCELJS_URL'));
+  assert.equal(script.el.integrity, run('EXCELJS_SRI'));
+  assert.match(run('EXCELJS_SRI'), /^sha512-/);
+  assert.equal(script.el.crossOrigin, 'anonymous');
+});

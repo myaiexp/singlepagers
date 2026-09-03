@@ -180,3 +180,47 @@ test('load() prefers the recovery key when the primary blob is corrupt', () => {
   assert.equal(run('forms[0].id'), 'rec-1');
   assert.equal(run('forms[0].attendance'), 'thu');
 });
+
+// persist()'s quota catch is the only signal that the in-memory forms never
+// reached disk. Replacing that alert with void() used to pass the suite, which
+// would leave a venue operator entering more forms that vanish on tab close.
+test('persist alerts on quota-exceeded and leaves in-memory forms intact', () => {
+  const { run, sandbox, alerts } = loadPage();
+  run(`forms = [{
+    id: 'keep-me', attendance: 'both', ratings: [5, 4, 3, 2, 1, 5, 4],
+    recommend: 'kylla', free: { best: 'Hyva', improve: '', topics: '', open: '' },
+    name: 'A', phone: '111',
+  }];`);
+  const before = run('JSON.stringify(forms)');
+  sandbox.localStorage.setItem = () => {
+    const err = new Error('The quota has been exceeded.');
+    err.name = 'QuotaExceededError';
+    throw err;
+  };
+  run('persist()');
+  assert.equal(run('JSON.stringify(forms)'), before, 'forms must survive the failed write');
+  assert.equal(run('forms[0].id'), 'keep-me');
+  assert.ok(
+    alerts.some(a => /täynnä/.test(a) && /Vie/.test(a)),
+    'operator is told the write failed and to export now',
+  );
+});
+
+// cancelEdit must drop the editing session and return to review. Deleting the
+// `editingId = null` reset used to pass, which would strand the page in edit
+// mode after a cancel (the next save would overwrite the original row).
+test('cancelEdit clears editingId, blanks current, and shows the review view', () => {
+  const { run, runSafe } = loadPage();
+  fillCurrent(run);
+  runSafe('saveForm()');
+  const originalId = run('forms[0].id');
+  runSafe('editForm(forms[0].id)');
+  assert.equal(run('editingId'), originalId);
+  assert.equal(run('current.name'), 'A');
+
+  run('cancelEdit()');
+  assert.equal(run('editingId'), null);
+  assert.equal(run('JSON.stringify(current)'), run('JSON.stringify(blankForm())'));
+  assert.equal(run('reviewBtn.textContent'), 'Takaisin syöttöön',
+    'showReview must run so the operator is looking at the list, not the editor');
+});
