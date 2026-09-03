@@ -169,3 +169,82 @@ test('sequential rolls after each settle still consume one roll each', () => {
   assert.equal(read('rollsRemaining'), 0, 'a fourth roll must be a no-op');
   assert.equal(read('currentGameRolls'), 3);
 });
+
+// --- kept dice / toggleKeepDie / getDieFace (finding #8960) -----------------
+// rollDice's `if (!keptDice[i])` branch and toggleKeepDie's three guards were
+// never entered: every harness resets keptDice to all-false and never clicks a
+// die. These tests drive the real functions against flushable timers.
+
+function forceRandom(sandbox, value) {
+  const fake = Object.create(sandbox.Math);
+  fake.random = () => value;
+  sandbox.Math = fake;
+}
+
+// Arrays born in the vm realm fail assert.deepEqual against host literals
+// (different Array constructor). Round-trip through JSON for a host copy.
+function arr(read, expr) {
+  return JSON.parse(read(`JSON.stringify(${expr})`));
+}
+
+test('held dice keep their face across a subsequent roll', () => {
+  const { sandbox, flush, read } = loadGame();
+
+  sandbox.rollDice();
+  flush();
+  sandbox.toggleKeepDie(0);
+  sandbox.toggleKeepDie(1);
+  assert.deepEqual(arr(read, 'keptDice'), [true, true, false, false, false]);
+
+  read('diceValues = [1, 2, 3, 4, 5]');
+  forceRandom(sandbox, 0.99); // Math.floor(0.99 * 6) + 1 === 6
+
+  sandbox.rollDice();
+  flush();
+
+  assert.deepEqual(arr(read, 'diceValues'), [1, 2, 6, 6, 6],
+    'indices 0-1 are held so they must stay 1,2; unheld faces re-roll to 6');
+});
+
+test('toggleKeepDie is a no-op before the first roll', () => {
+  const { sandbox, read } = loadGame();
+  assert.equal(read('hasRolled'), false);
+  assert.equal(read('rollsRemaining'), 3);
+  sandbox.toggleKeepDie(0);
+  assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, false]);
+});
+
+test('toggleKeepDie is a no-op while dice are settling', () => {
+  const { sandbox, flush, read } = loadGame();
+  sandbox.rollDice();
+  assert.equal(read('isRolling'), true);
+  sandbox.toggleKeepDie(0);
+  assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, false],
+    'must not lock a face against dice that have not settled');
+  flush();
+});
+
+test('toggleKeepDie is a no-op at rollsRemaining === 3 even if hasRolled is true', () => {
+  const { sandbox, read } = loadGame();
+  read('hasRolled = true; rollsRemaining = 3; isRolling = false;');
+  sandbox.toggleKeepDie(2);
+  assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, false]);
+});
+
+test('toggleKeepDie flips a die after a settled roll and flips it back', () => {
+  const { sandbox, flush, read } = loadGame();
+  sandbox.rollDice();
+  flush();
+  sandbox.toggleKeepDie(4);
+  assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, true]);
+  sandbox.toggleKeepDie(4);
+  assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, false]);
+});
+
+test('getDieFace maps 1..6 onto the six pip glyphs', () => {
+  const { read } = loadGame();
+  const faces = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
+  for (const [value, glyph] of Object.entries(faces)) {
+    assert.equal(read(`getDieFace(${value})`), glyph, `face ${value}`);
+  }
+});

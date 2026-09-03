@@ -121,3 +121,38 @@ test('a readable store is still written in place, with no recovery copy', () => 
   assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
   assert.equal(ls.getItem('yatzy_players_recovery'), null);
 });
+
+// --- reset must wipe the recovery copy (finding #8959) ----------------------
+// createSandbox's confirm() returns false, so a test has to patch it — same
+// confirmCtl pattern as palaute-save.test.mjs.
+
+test('confirmResetStats clears both stats keys and returns writes to the canonical store', () => {
+  const confirmCtl = { value: false };
+  const { sandbox, run } = loadPage(yatzyPath, {
+    seed: { yatzy_statistics: CORRUPT },
+    patch(s) { s.confirm = () => confirmCtl.value; },
+  });
+  const ls = sandbox.localStorage;
+  playOneGame(run);
+  assert.equal(ls.getItem('yatzy_statistics'), CORRUPT);
+  assert.ok(ls.getItem('yatzy_statistics_recovery'), 'game diverted to recovery');
+
+  confirmCtl.value = false;
+  run('confirmResetStats()');
+  assert.equal(ls.getItem('yatzy_statistics'), CORRUPT,
+    'declining the confirm must not touch the unreadable blob');
+  assert.ok(ls.getItem('yatzy_statistics_recovery'),
+    'declining the confirm must not drop the recovery copy');
+
+  confirmCtl.value = true;
+  run('confirmResetStats()');
+  assert.equal(ls.getItem('yatzy_statistics'), null);
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
+  assert.equal(run('unreadableStores.has(STATS_KEY)'), false,
+    'the store must be readable again so later writes go to the canonical key');
+
+  playOneGame(run);
+  assert.ok(JSON.parse(ls.getItem('yatzy_statistics') || 'null'),
+    'the next game must land on yatzy_statistics, not the recovery sibling');
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
+});

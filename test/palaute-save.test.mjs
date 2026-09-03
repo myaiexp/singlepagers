@@ -140,6 +140,37 @@ test('clearAll wipes forms and storage when confirmed', () => {
   assert.deepEqual(stored(sandbox), []);
 });
 
+test('clearAll while the store is unreadable wipes both keys and returns writes to the canonical key', () => {
+  const blob = '{not-json';
+  const { run, runSafe, sandbox, confirmCtl } = loadPage(
+    { [STORAGE_KEY]: blob },
+    { confirmValue: false },
+  );
+  fillCurrent(run);
+  runSafe('saveForm()');
+  assert.equal(run('storageUnreadable'), true);
+  assert.equal(sandbox.localStorage.getItem(STORAGE_KEY), blob);
+  assert.ok(stored(sandbox, RECOVERY_KEY), 'new row diverted to recovery');
+
+  confirmCtl.value = true;
+  runSafe('clearAll()');
+
+  assert.equal(run('forms.length'), 0);
+  assert.equal(run('storageUnreadable'), false,
+    'reset must make the store readable so persist writes STORAGE_KEY again');
+  assert.deepEqual(stored(sandbox), [],
+    'canonical key holds the empty store, not the leftover corrupt blob');
+  assert.equal(sandbox.localStorage.getItem(RECOVERY_KEY), null,
+    'recovery copy must go too, or the next load reads diverted rows back');
+
+  fillCurrent(run);
+  runSafe('saveForm()');
+  assert.equal(run('forms.length'), 1);
+  assert.equal(stored(sandbox).length, 1,
+    'the next save must land on the canonical key');
+  assert.equal(sandbox.localStorage.getItem(RECOVERY_KEY), null);
+});
+
 test('corrupt localStorage alerts, does not clobber the blob, and persist writes a recovery key', () => {
   const blob = '{not-json';
   const { run, sandbox, alerts } = loadPage({ [STORAGE_KEY]: blob });

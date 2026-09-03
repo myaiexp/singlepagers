@@ -612,6 +612,15 @@ function deleteForm(id) {
 function clearAll() {
   if (!confirm("Poistetaanko KAIKKI " + forms.length + " lomaketta? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
   forms = [];
+  // "ALL" includes a recovery copy left by an unreadable blob; leaving it
+  // would let load() read the diverted rows back on the next boot. Wiping
+  // both keys also makes the store readable again, so persist writes to
+  // STORAGE_KEY instead of silently diverting forever.
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_RECOVERY_KEY);
+  } catch (e) { /* storage disabled — in-memory wipe still stands */ }
+  storageUnreadable = false;
   persist();
   renderReview();
 }

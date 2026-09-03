@@ -35,7 +35,7 @@ so ids and counters stay stable across reloads.
 
 | App | Keys | Invariants |
 | --- | --- | --- |
-| palaute.html | `palaute_huippu2026_v1` + sibling `_recovery` | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). |
+| palaute.html | `palaute_huippu2026_v1` + sibling `_recovery` | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). `clearAll` is the reset: it wipes both keys and clears `storageUnreadable` so later persist returns to the canonical key. |
 | yatzy.html | `yatzy_players`, `yatzy_statistics` (legacy `yatzy_playerNames` migrated once); each has a `_recovery` sibling | Never clear seats or statistics on load — a stats reset is `confirmResetStats()`. Unreadable blobs use `readStore` / `writeStore` over `unreadableStores`. |
 
 A "reset" action must clear the recovery copy alongside the canonical key, or
