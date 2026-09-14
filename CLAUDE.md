@@ -65,33 +65,10 @@ monitoring: [`docs/exceljs.md`](docs/exceljs.md).
 
 ## Tests
 
-No-deps `node:test` suite under `test/` (run `node --test test/*.test.mjs`).
-`loadPage` in `test/dom-stub.mjs` extracts each page's inline `<script>` and
-runs it under `node:vm` against a fake DOM — zero changes to the HTML under
-test. Shared harness pieces, so page tests do not re-roll them:
-
-- `test/dom-stub.mjs` — generic vm/DOM only: `loadPage`, the `patch` helpers
-  `stableElements` (one element per id, optional recording classList),
-  `captureAlerts`, `captureCreated`, and `createExcelJSStub`.
-- `test/pages.mjs` — `YATZY_PATH`, `PALAUTE_PATH`, `REPO_ROOT`.
-- `test/yatzy-fixtures.mjs` — `scorecardTotalling(run, upper, lower)`, built
-  from the page's own `scoreCategories`. Fixtures read the data model from the
-  loaded page (`scoreCategories`, `FREETEXT`) rather than restating ids.
-
-Page-script coverage is not `node --test --experimental-test-coverage` — that
-reporter prints 100% over zero files because the vm filenames
-(`yatzy.html#script`, `palaute.html#script`) are not file URLs. Use raw V8
-coverage instead; start from an empty `.coverage/` (leftover files merge and
-can hide a drop):
-
-    NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs
-
-Floors live in `test/coverage.mjs` (palaute 88%, yatzy 92% function entry —
-the current rate, a ratchet, not a target). `.coverage/` is gitignored. Do
-not add a GitHub Actions workflow — this repo has no GH runner; the session
-that pushes runs the gate.
-
-`test/smoke.html` is a manual browser check for the yatzy load-persistence
-invariant (legacy names stay byte-identical; name-keyed stats migrate under
-seat ids with counters intact). Serve the repo root over HTTP from the same
-origin as `yatzy.html` and open it; it is not part of the `node --test` run.
+Run `node --test test/*.test.mjs` (no deps). `loadPage` in `test/dom-stub.mjs`
+runs each page's inline script under `node:vm` against a fake DOM, with shared
+`patch` helpers (`stableElements`, `captureAlerts`, `captureCreated`), event
+`dispatch`, and page paths in `test/pages.mjs`. Coverage gate, from an empty
+`.coverage/`: `NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs`
+(floors in `test/coverage.mjs`: palaute 97%, yatzy 92%). Harness, coverage
+rationale, and the manual `test/smoke.html` check: [`docs/testing.md`](docs/testing.md).

@@ -44,16 +44,17 @@ function runMain(dir) {
   return { code, out: logs.join('\n'), err: errs.join('\n') };
 }
 
-test('percent rounds to one decimal (121/137 = 88.3, 90/97 = 92.8)', () => {
-  assert.equal(percent(121, 137), 88.3);
-  assert.equal(percent(90, 97), 92.8);
-  assert.equal(percent(120, 137), 87.6);
-  assert.equal(percent(89, 97), 91.8);
+test('percent rounds to one decimal (138/141 = 97.9, 92/99 = 92.9)', () => {
+  assert.equal(percent(138, 141), 97.9);
+  assert.equal(percent(92, 99), 92.9);
+  assert.equal(percent(137, 141), 97.2);
+  assert.equal(percent(136, 141), 96.5);
+  assert.equal(percent(91, 99), 91.9);
   assert.equal(percent(0, 0), 0);
 });
 
 test('FLOORS start at the current rates, rounded down', () => {
-  assert.equal(FLOORS['palaute.html'], 88);
+  assert.equal(FLOORS['palaute.html'], 97);
   assert.equal(FLOORS['yatzy.html'], 92);
 });
 
@@ -106,11 +107,11 @@ test('main exits 1 below the floor', () => {
   assert.match(err, /below floor/);
 });
 
-test('main exits 0 at the current rates (121/137 and 90/97)', () => {
+test('main exits 0 at the current rates (138/141 and 92/99)', () => {
   const dir = writeDir({
     'coverage-a.json': [
-      { url: 'yatzy.html#script', functions: mix(90, 97, 'y') },
-      { url: 'palaute.html#script', functions: mix(121, 137, 'p') },
+      { url: 'yatzy.html#script', functions: mix(92, 99, 'y') },
+      { url: 'palaute.html#script', functions: mix(138, 141, 'p') },
     ],
   });
   const { code, out } = runMain(dir);
@@ -119,15 +120,26 @@ test('main exits 0 at the current rates (121/137 and 90/97)', () => {
   assert.match(out, /palaute\.html/);
 });
 
-test('main exits 1 on a one-function drop below either floor', () => {
-  const dir = writeDir({
-    'coverage-a.json': [
-      { url: 'yatzy.html#script', functions: mix(89, 97, 'y') },
-      { url: 'palaute.html#script', functions: mix(120, 137, 'p') },
-    ],
-  });
-  const { code } = runMain(dir);
+// One page at `[entered, total]`, the other at its current rate.
+function runAt(page, entered, total) {
+  const rates = { 'yatzy.html': [92, 99], 'palaute.html': [138, 141], [page]: [entered, total] };
+  return runMain(writeDir({
+    'coverage-a.json': Object.entries(rates).map(([p, [e, t]]) =>
+      ({ url: `${p}#script`, functions: mix(e, t, p[0]) })),
+  }));
+}
+
+test('main exits 1 on a one-function yatzy drop (91/99 < 92)', () => {
+  const { code, out } = runAt('yatzy.html', 91, 99);
   assert.equal(code, 1);
+  assert.match(out, /yatzy\.html .*FAIL/);
+});
+
+test('palaute has one function of slack: 137/141 passes, 136/141 fails', () => {
+  assert.equal(runAt('palaute.html', 137, 141).code, 0);
+  const { code, out } = runAt('palaute.html', 136, 141);
+  assert.equal(code, 1);
+  assert.match(out, /palaute\.html .*FAIL/);
 });
 
 test('node test/coverage.mjs exits 1 on a missing dir (documented CLI)', () => {

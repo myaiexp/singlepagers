@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 export const PAGES = ['palaute.html', 'yatzy.html'];
 
-// Current measured function-entry rate, rounded down: palaute 121/137 = 88.3%,
-// yatzy 90/97 = 92.8%. Start here to ratchet, not to bless. A one-function
-// drop on either page falls below the integer floor.
+// Current measured function-entry rate, rounded down: palaute 138/141 = 97.9%,
+// yatzy 92/99 = 92.9%. A ratchet, not a target: raise it when coverage rises.
+// A one-function drop fails yatzy (91.9%); palaute has one function of slack
+// (137/141 = 97.2%), two fail it.
 export const FLOORS = {
-  'palaute.html': 88,
+  'palaute.html': 97,
   'yatzy.html': 92,
 };
 

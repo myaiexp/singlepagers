@@ -9,8 +9,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  extractInlineScript, loadPage, createExcelJSStub,
-  stableElements, captureAlerts, captureCreated,
+  extractInlineScript, loadPage, createExcelJSStub, createDocument, createSandbox,
+  stableElements, captureAlerts, captureCreated, dispatch, listeners,
 } from './dom-stub.mjs';
 import { PALAUTE_PATH, YATZY_PATH } from './pages.mjs';
 import { scorecardTotalling } from './yatzy-fixtures.mjs';
@@ -114,6 +114,55 @@ test('yatzy.html and palaute.html boot without a load-time exception', () => {
     const { loadError } = loadPage(path);
     assert.equal(loadError, undefined, `${name} threw: ${loadError && loadError.stack}`);
   }
+});
+
+test('dispatch calls registered listeners in order with one shared event', () => {
+  const doc = createDocument();
+  const seen = [];
+  const a = (e) => seen.push(['a', e.key]);
+  const b = (e) => { seen.push(['b', e.key]); e.preventDefault(); };
+  doc.addEventListener('keydown', a);
+  doc.addEventListener('keydown', b);
+  const ev = dispatch(doc, 'keydown', { key: '3' });
+  assert.deepEqual(seen, [['a', '3'], ['b', '3']]);
+  assert.equal(ev.defaultPrevented, true);
+  doc.removeEventListener('keydown', a);
+  assert.deepEqual(listeners(doc, 'keydown'), [b]);
+});
+
+test('element listeners key to the element they were added on', () => {
+  const el = createDocument().getElementById('x');
+  let got;
+  el.addEventListener('input', (e) => { got = e.target; });
+  dispatch(el, 'input');
+  assert.equal(got, el);
+  assert.equal(listeners(createDocument().getElementById('x'), 'input').length, 0);
+});
+
+test('default document: fresh nodes and an always-false classList', () => {
+  const doc = createDocument();
+  assert.notEqual(doc.getElementById('a'), doc.getElementById('a'));
+  const el = doc.getElementById('a');
+  el.classList.add('hidden');
+  assert.equal(el.classList.contains('hidden'), false);
+});
+
+test('stableElements descendants keeps nodes per selector until innerHTML is reassigned', () => {
+  const sandbox = createSandbox();
+  const byId = stableElements(sandbox, { descendants: true });
+  const entry = sandbox.document.getElementById('entry');
+  assert.equal(byId.get('entry'), entry);
+  const input = entry.querySelector('#r-name');
+  const list = entry.querySelectorAll('.att');
+  assert.equal(entry.querySelector('#r-name'), input);
+  assert.equal(entry.querySelectorAll('.att'), list);
+  entry.classList.add('hidden');
+  list[0].classList.add('sel');
+  assert.equal(entry.classList.contains('hidden'), true);
+  assert.equal(list[0].classList.contains('sel'), true);
+  entry.innerHTML = '<p>re-render</p>';
+  assert.notEqual(entry.querySelector('#r-name'), input);
+  assert.notEqual(entry.querySelectorAll('.att'), list);
 });
 
 test('createExcelJSStub records worksheets/rows and returns the given buffer', async () => {

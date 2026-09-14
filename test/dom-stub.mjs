@@ -5,6 +5,9 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import vm from 'node:vm';
+import { listenerMethods } from './dom-events.mjs';
+
+export { dispatch, listeners } from './dom-events.mjs';
 
 export function createLocalStorage(seed = {}) {
   const store = new Map(Object.entries(seed));
@@ -20,10 +23,21 @@ export function createLocalStorage(seed = {}) {
 
 // A forgiving fake DOM element: known props behave; unknown members return a
 // chainable factory so calls like el.querySelector('.x').textContent = '…' don't throw.
-function makeElement() {
+// `stable` (stableElements' `descendants`) returns one node per selector until innerHTML is
+// reassigned — a re-render replaces the descendants and their listeners, as in a
+// real DOM — and records classList, so a test can fire what the page bound.
+function makeElement({ stable = false } = {}) {
+  const queries = new Map();
+  const remember = (key, make) => {
+    if (!stable) return make();
+    if (!queries.has(key)) queries.set(key, make());
+    return queries.get(key);
+  };
   const props = {
     style: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    classList: stable
+      ? recordingClassList()
+      : { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     dataset: {},
     children: [],
     textContent: '', innerHTML: '', innerText: '', value: '',
@@ -33,21 +47,23 @@ function makeElement() {
     insertBefore(c) { return c; },
     setAttribute() {},
     getAttribute() { return null; },
-    addEventListener() {},
-    removeEventListener() {},
+    ...listenerMethods,
     focus() {}, blur() {}, select() {}, remove() {}, click() {},
   };
   return new Proxy(props, {
     get(target, prop) {
-      if (prop === 'querySelector') return () => makeElement();
-      if (prop === 'querySelectorAll' || prop === 'getElementsByClassName' || prop === 'getElementsByTagName') {
-        return () => makeNodeList();
-      }
+      if (prop === 'querySelector') return (sel) => remember(`one:${sel}`, () => makeElement({ stable }));
+      if (prop === 'querySelectorAll') return (sel) => remember(`all:${sel}`, () => makeNodeList(5, { stable }));
+      if (prop === 'getElementsByClassName' || prop === 'getElementsByTagName') return () => makeNodeList();
       if (prop in target) return target[prop];
       if (typeof prop === 'symbol') return undefined;
       return () => makeElement();
     },
-    set(target, prop, value) { target[prop] = value; return true; },
+    set(target, prop, value) {
+      if (prop === 'innerHTML') queries.clear();
+      target[prop] = value;
+      return true;
+    },
   });
 }
 
@@ -70,8 +86,8 @@ export function recordingClassList() {
 
 // Array-like NodeList that yields a fake element for any index, so fixed-size loops
 // (e.g. the 5 dice) never hit `undefined.textContent`.
-export function makeNodeList(n = 5) {
-  const arr = Array.from({ length: n }, () => makeElement());
+export function makeNodeList(n = 5, { stable = false } = {}) {
+  const arr = Array.from({ length: n }, () => makeElement({ stable }));
   return new Proxy(arr, {
     get(t, prop) {
       if (typeof prop === 'string' && /^\d+$/.test(prop)) return prop in t ? t[prop] : makeElement();
@@ -96,8 +112,7 @@ export function createDocument() {
     body: makeElement(),
     head: makeElement(),
     documentElement: makeElement(),
-    addEventListener() {},
-    removeEventListener() {},
+    ...listenerMethods,
   };
 }
 
@@ -170,13 +185,16 @@ export function loadPage(htmlPath, { seed = {}, patch } = {}) {
 // default hands out a fresh element per call, so a page's write
 // (`getElementById('x').innerHTML = …`) would be unreadable afterwards.
 // recordClasses gives each element a Set-backed classList (recordingClassList)
-// so class toggles like `show` can be read back. Returns the key → element Map.
-export function stableElements(sandbox, { method = 'getElementById', recordClasses = false } = {}) {
+// so class toggles like `show` can be read back. `descendants` builds each
+// element with stable querySelector/querySelectorAll results (see makeElement)
+// and a recording classList throughout, so a test can fire the listeners and
+// onclick the page bound beneath it. Returns the key → element Map.
+export function stableElements(sandbox, { method = 'getElementById', recordClasses = false, descendants = false } = {}) {
   const elements = new Map();
   const lookup = sandbox.document[method].bind(sandbox.document);
   sandbox.document[method] = (key) => {
     if (!elements.has(key)) {
-      const el = lookup(key);
+      const el = descendants ? makeElement({ stable: true }) : lookup(key);
       if (recordClasses) el.classList = recordingClassList();
       elements.set(key, el);
     }
