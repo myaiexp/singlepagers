@@ -789,7 +789,9 @@
         let diceValues = [1, 2, 3, 4, 5];
         let keptDice = [false, false, false, false, false];
         let hasRolled = false;
-        let currentGameRolls = 0; // Track rolls in current game
+        // Rolls taken this game, per seat (keyed by currentPlayer), so each seat's
+        // totalRolls statistic counts its own rolls, not the whole game's.
+        let currentGameRolls = { 1: 0, 2: 0 };
         // In-flight roll lock: rollDice's 500ms settle writes diceValues and
         // decrements rollsRemaining in a timeout. Without this, a second click
         // (or scoreCategory → nextTurn → rollDice) queues another timeout that
@@ -804,25 +806,16 @@
 
         // Per-seat identity: stats are keyed by stable `id` so renaming mid-game
         // (Edit Names) updates the display name without forking a new stats entry.
-        // `playerNames` is a derived view kept for call sites that only need labels.
         let players = {
             player1: { id: null, name: 'Player 1' },
             player2: { id: null, name: 'Player 2' }
         };
-        let playerNames = { player1: 'Player 1', player2: 'Player 2' };
 
         function newPlayerId() {
             if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
                 return crypto.randomUUID();
             }
             return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 11);
-        }
-
-        function syncPlayerNamesView() {
-            playerNames = {
-                player1: players.player1.name,
-                player2: players.player2.name
-            };
         }
 
         const scoreCategories = {
@@ -859,7 +852,7 @@
         }
 
         function init() {
-            loadPlayerNames();
+            initSeats();
             setupDiceListeners();
             renderScorecard(1);
             renderScorecard(2);
@@ -927,11 +920,44 @@
             return recovered === null ? undefined : recovered;
         }
 
+        // Set once the browser refuses a write (storage blocked, quota full,
+        // sandboxed embed). A refused write must not throw out of its caller:
+        // init() would stop before wiring the dice, and endGame() before the
+        // Play Again overlay. Seats and the game carry on in memory instead, and
+        // the player is told once. Same remedy as palaute.html's persist().
+        let storageWriteFailed = false;
+
+        function reportWriteFailure(err) {
+            if (storageWriteFailed) return;
+            storageWriteFailed = true;
+            alert(`⚠ This browser refused to save (${err?.name || 'storage error'}).\n\n` +
+                  `You can keep playing, but player names and statistics from this ` +
+                  `session may not be kept.`);
+        }
+
         // Write one JSON store, diverting to the recovery copy while the canonical
         // blob is unreadable so a save can never destroy it.
         function writeStore(key, value) {
             const target = unreadableStores.has(key) ? key + RECOVERY_SUFFIX : key;
-            localStorage.setItem(target, JSON.stringify(value));
+            try {
+                localStorage.setItem(target, JSON.stringify(value));
+            } catch (err) {
+                reportWriteFailure(err);
+            }
+        }
+
+        // Delete a store together with its recovery copy — clearing the canonical
+        // key alone would let the recovery copy be read back. With both gone the
+        // store is readable again, so writes return to it. False when refused.
+        function clearStore(key) {
+            try {
+                localStorage.removeItem(key);
+                localStorage.removeItem(key + RECOVERY_SUFFIX);
+            } catch {
+                return false;
+            }
+            unreadableStores.delete(key);
+            return true;
         }
 
         const isStatsMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -1008,31 +1034,28 @@
             !!v && typeof v === 'object' &&
             (typeof v.player1 === 'string' || typeof v.player2 === 'string');
 
-        function loadPlayerNames() {
-            const parsed = readStore(PLAYERS_KEY, isSeatMap);
-            if (parsed) {
+        // Seat bootstrap, run once from init(). It writes as well as reads: the
+        // saved seats are restored, or fresh ids are minted for a first run /
+        // legacy name-only storage, and the result is written back. Those writes
+        // only add or re-key data — never clear seats or statistics here.
+        function initSeats() {
+            const saved = readStore(PLAYERS_KEY, isSeatMap);
+            if (saved) {
                 players = {
-                    player1: { id: parsed.player1.id, name: parsed.player1.name || 'Player 1' },
-                    player2: { id: parsed.player2.id, name: parsed.player2.name || 'Player 2' }
+                    player1: { id: saved.player1.id, name: saved.player1.name || 'Player 1' },
+                    player2: { id: saved.player2.id, name: saved.player2.name || 'Player 2' }
                 };
-                syncPlayerNamesView();
-                savePlayersToStorage(); // refresh legacy name key in sync
-                updatePlayerNamesDisplay();
-                return;
+            } else {
+                const names = readStore(LEGACY_NAMES_KEY, isLegacyNames);
+                players = {
+                    player1: { id: newPlayerId(), name: names?.player1 || 'Player 1' },
+                    player2: { id: newPlayerId(), name: names?.player2 || 'Player 2' }
+                };
             }
 
-            // Migrate legacy name-only storage (or first run)
-            let n1 = 'Player 1';
-            let n2 = 'Player 2';
-            const names = readStore(LEGACY_NAMES_KEY, isLegacyNames);
-            if (names?.player1) n1 = names.player1;
-            if (names?.player2) n2 = names.player2;
-            players = {
-                player1: { id: newPlayerId(), name: n1 },
-                player2: { id: newPlayerId(), name: n2 }
-            };
-            syncPlayerNamesView(); // before save — legacy key is derived from this
-            migrateLegacyNameKeyedStats(players);
+            // Write side: fresh seats adopt any name-keyed legacy stats, then the
+            // seats (and the legacy names key) are persisted.
+            if (!saved) migrateLegacyNameKeyedStats(players);
             savePlayersToStorage();
             updatePlayerNamesDisplay();
         }
@@ -1040,13 +1063,13 @@
         function savePlayersToStorage() {
             writeStore(PLAYERS_KEY, players);
             // Keep legacy key in sync for older readers / smoke tests that seed it
-            writeStore(LEGACY_NAMES_KEY, playerNames);
+            writeStore(LEGACY_NAMES_KEY, { player1: players.player1.name, player2: players.player2.name });
         }
 
         function updatePlayerNamesDisplay() {
             document.getElementById('scorecard1').querySelector('.scorecard-header').textContent = players.player1.name;
             document.getElementById('scorecard2').querySelector('.scorecard-header').textContent = players.player2.name;
-            updateUI(); // This will update the current player display
+            updateUI();
         }
 
         function showModal(id) {
@@ -1081,7 +1104,6 @@
             // fork statistics into a new entry under the new name.
             players.player1.name = p1Name || 'Player 1';
             players.player2.name = p2Name || 'Player 2';
-            syncPlayerNamesView();
 
             // Keep any existing stats row's display name in sync with the seat.
             const all = loadAllStats();
@@ -1116,24 +1138,33 @@
             saveAllStats(allStats);
         }
 
-        function updateOnePlayerStats(playerId, displayName, score, bonus, yatzy, didWin, didLose) {
-            const stats = getPlayerStats(playerId);
-            stats.name = displayName;
+        const OUTCOME_COUNTER = { win: 'wins', loss: 'losses', draw: 'draws' };
+
+        // Record one finished game for one seat. `outcome` is 'win' | 'loss' |
+        // 'draw' and moves exactly one counter, so wins + losses + draws ==
+        // gamesPlayed. `rolls` is this seat's own roll count for the game.
+        function updateOnePlayerStats(seat, { score, bonus, yatzy, rolls, outcome }) {
+            const counter = OUTCOME_COUNTER[outcome];
+            if (!counter) throw new Error(`unknown game outcome: ${outcome}`);
+            const stats = getPlayerStats(seat.id);
+            stats.name = seat.name;
             stats.gamesPlayed++;
-            stats.totalRolls += currentGameRolls;
+            stats.totalRolls += rolls;
             stats.totalPoints += score;
             if (score > stats.highestScore) stats.highestScore = score;
             if (bonus) stats.bonusCount++;
             if (yatzy) stats.yatzysScored++;
-            if (didWin) stats.wins++;
-            else if (didLose) stats.losses++;
-            else stats.draws = (stats.draws || 0) + 1; // tie: keep wins+losses+draws == gamesPlayed
-            savePlayerStats(playerId, stats);
+            stats[counter] = (stats[counter] || 0) + 1;
+            savePlayerStats(seat.id, stats);
         }
 
-        function updateGameStatistics(winner, p1Score, p2Score, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy) {
-            updateOnePlayerStats(players.player1.id, players.player1.name, p1Score, p1Bonus, p1Yatzy, winner === 1, winner === 2);
-            updateOnePlayerStats(players.player2.id, players.player2.name, p2Score, p2Bonus, p2Yatzy, winner === 2, winner === 1);
+        // winner: 0 tie, 1 or 2 the winning seat. p1 / p2: that seat's
+        // { score, bonus, yatzy, rolls } for the game just finished (seatResult).
+        function updateGameStatistics(winner, p1, p2) {
+            if (![0, 1, 2].includes(winner)) throw new Error(`unknown winner: ${winner}`);
+            const outcomeFor = (seat) => winner === 0 ? 'draw' : (winner === seat ? 'win' : 'loss');
+            updateOnePlayerStats(players.player1, { ...p1, outcome: outcomeFor(1) });
+            updateOnePlayerStats(players.player2, { ...p2, outcome: outcomeFor(2) });
         }
 
         function showStatsModal() {
@@ -1216,16 +1247,14 @@
         }
 
         function confirmResetStats() {
-            if (confirm('Are you sure you want to reset ALL statistics? This cannot be undone!')) {
-                // "ALL" includes a recovery copy left behind by an unreadable blob;
-                // clearing the canonical key alone would let it be read back. With
-                // both gone the store is readable again, so writes return to it.
-                localStorage.removeItem(STATS_KEY);
-                localStorage.removeItem(STATS_KEY + RECOVERY_SUFFIX);
-                unreadableStores.delete(STATS_KEY);
-                renderStatistics();
-                alert('All statistics have been reset.');
+            if (!confirm('Are you sure you want to reset ALL statistics? This cannot be undone!')) return;
+            // "ALL" includes the recovery copy left behind by an unreadable blob.
+            if (!clearStore(STATS_KEY)) {
+                alert('Statistics could not be reset — this browser is blocking storage.');
+                return;
             }
+            renderStatistics();
+            alert('All statistics have been reset.');
         }
 
         function setupDiceListeners() {
@@ -1254,7 +1283,7 @@
 
             isRolling = true;
             hasRolled = true;
-            currentGameRolls++; // Track total rolls in game
+            currentGameRolls[currentPlayer]++;
             const dice = document.querySelectorAll('.die');
 
             dice.forEach(die => die.classList.add('rolling'));
@@ -1275,13 +1304,9 @@
 
                 dice.forEach(die => die.classList.remove('rolling'));
 
-                // Re-render the scorecard once. enableScoring() renders it with
-                // updated potential scores AND clickable categories, and runs after
-                // every roll (rollsRemaining is always < 3 here), so a separate
-                // prior renderScorecard() call would just be redundant DOM work.
-                if (rollsRemaining < 3) {
-                    enableScoring();
-                }
+                // enableScoring() re-renders the scorecard with updated potentials
+                // AND clickable categories — no separate renderScorecard() needed.
+                enableScoring();
             }, 500);
         }
 
@@ -1303,14 +1328,13 @@
         }
 
         function updateUI() {
-            const currentPlayerName = currentPlayer === 1 ? playerNames.player1 : playerNames.player2;
+            const currentPlayerName = currentPlayer === 1 ? players.player1.name : players.player2.name;
             document.getElementById('currentPlayer').textContent = `${currentPlayerName}'s Turn`;
             document.getElementById('rollsRemaining').textContent = rollsRemaining;
-            
+
             const rollBtn = document.getElementById('rollBtn');
             rollBtn.disabled = rollsRemaining === 0 || isRolling;
 
-            // Update active scorecard
             document.getElementById('scorecard1').classList.toggle('active', currentPlayer === 1);
             document.getElementById('scorecard2').classList.toggle('active', currentPlayer === 2);
         }
@@ -1358,7 +1382,7 @@
 
         // The upper-section bonus rule, defined once. Its three consumers —
         // renderScorecard (what the player sees), calculateGrandTotal (the score
-        // that decides win/loss) and endGame (the bonusCount statistic) — all read
+        // that decides win/loss) and seatResult (the bonusCount statistic) — all read
         // it here, so the threshold and the award cannot drift apart between them.
         const UPPER_BONUS_THRESHOLD = 63;
         const UPPER_BONUS_POINTS = 50;
@@ -1423,7 +1447,6 @@
 
             if (score === null) return;
 
-            // Find and set the score
             let category = scores.upper.find(c => c.id === categoryId);
             if (!category) {
                 category = scores.lower.find(c => c.id === categoryId);
@@ -1431,24 +1454,26 @@
 
             if (category && category.value === null) {
                 category.value = score;
-                
+
                 renderScorecard(currentPlayer);
                 syncReferencePanel();
 
-                // Flash the just-scored row, identified unambiguously by its category id.
+                // Flash the just-scored row. The seat is captured now because
+                // nextTurn() below flips currentPlayer before the timer fires; the
+                // row itself is looked up late because nextTurn re-renders both
+                // scorecards, which would detach an element resolved here.
+                const scoredPlayer = currentPlayer;
                 setTimeout(() => {
-                    const row = document.querySelector(`#scorecardBody${currentPlayer} [data-cat-id="${categoryId}"]`);
+                    const row = document.querySelector(`#scorecardBody${scoredPlayer} [data-cat-id="${categoryId}"]`);
                     if (row) {
                         row.classList.add('just-scored');
                         setTimeout(() => row.classList.remove('just-scored'), 1000);
                     }
                 }, 100);
 
-                // Check if game is over
                 if (isGameOver()) {
                     endGame();
                 } else {
-                    // Next turn
                     nextTurn();
                 }
             }
@@ -1534,39 +1559,39 @@
             return player1Complete && player2Complete;
         }
 
+        // One seat's finished game, in the shape updateGameStatistics records.
+        function seatResult(scores, seat) {
+            return {
+                score: calculateGrandTotal(scores),
+                bonus: bonusFor(calculateUpperTotal(scores)) > 0,
+                yatzy: scores.lower.find(c => c.id === 'yatzy')?.value === 50,
+                rolls: currentGameRolls[seat]
+            };
+        }
+
         function endGame() {
-            const p1Total = calculateGrandTotal(player1Scores);
-            const p2Total = calculateGrandTotal(player2Scores);
-            
-            // Calculate bonuses and yatzys for statistics
-            const p1UpperTotal = calculateUpperTotal(player1Scores);
-            const p2UpperTotal = calculateUpperTotal(player2Scores);
-            const p1Bonus = bonusFor(p1UpperTotal) > 0;
-            const p2Bonus = bonusFor(p2UpperTotal) > 0;
-            const p1Yatzy = player1Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
-            const p2Yatzy = player2Scores.lower.find(c => c.id === 'yatzy')?.value === 50;
-            
-            // Determine winner
+            const p1 = seatResult(player1Scores, 1);
+            const p2 = seatResult(player2Scores, 2);
+
             let winner = 0; // 0 = tie, 1 = player 1, 2 = player 2
             let winnerText = '';
-            if (p1Total > p2Total) {
+            if (p1.score > p2.score) {
                 winner = 1;
-                winnerText = `${escapeHtml(playerNames.player1)} Wins! 🎉<br>Score: ${p1Total} - ${p2Total}`;
-            } else if (p2Total > p1Total) {
+                winnerText = `${escapeHtml(players.player1.name)} Wins! 🎉<br>Score: ${p1.score} - ${p2.score}`;
+            } else if (p2.score > p1.score) {
                 winner = 2;
-                winnerText = `${escapeHtml(playerNames.player2)} Wins! 🎉<br>Score: ${p2Total} - ${p1Total}`;
+                winnerText = `${escapeHtml(players.player2.name)} Wins! 🎉<br>Score: ${p2.score} - ${p1.score}`;
             } else {
-                winnerText = `It's a Tie! 🤝<br>Score: ${p1Total} - ${p2Total}`;
+                winnerText = `It's a Tie! 🤝<br>Score: ${p1.score} - ${p2.score}`;
             }
 
-            // Save statistics
-            updateGameStatistics(winner, p1Total, p2Total, p1Bonus, p2Bonus, p1Yatzy, p2Yatzy);
-
+            // Show the result before persisting it: the overlay holds the only
+            // Play Again button, so nothing in the stats write may keep it hidden.
             document.getElementById('winnerText').innerHTML = winnerText;
             document.getElementById('gameOver').classList.add('show');
-            
-            // Show confetti
             createConfetti();
+
+            updateGameStatistics(winner, p1, p2);
         }
 
         function createConfetti() {
@@ -1622,7 +1647,7 @@
             diceValues = [1, 2, 3, 4, 5];
             keptDice = [false, false, false, false, false];
             hasRolled = false;
-            currentGameRolls = 0; // Reset roll counter
+            currentGameRolls = { 1: 0, 2: 0 };
 
             player1Scores = JSON.parse(JSON.stringify(scoreCategories));
             player2Scores = JSON.parse(JSON.stringify(scoreCategories));
@@ -1637,7 +1662,6 @@
             rollDice();
         }
 
-        // Initialize game on load
         init();
     </script>
 </body>

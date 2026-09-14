@@ -42,6 +42,11 @@ A "reset" action must clear the recovery copy alongside the canonical key, or
 the diverted data is simply read back afterwards. Do not "simplify" a diverted
 write back into a direct `setItem`.
 
+A write the browser refuses (storage blocked, quota full, `localStorage` null)
+must not throw out of its caller: palaute's `persist()` and yatzy's
+`writeStore` / `clearStore` catch it, alert, and the page keeps working in
+memory. yatzy's `endGame` shows the game-over overlay before writing stats.
+
 ## Data handling (`palaute.html`)
 
 Optional raffle name and phone live in each saved form (`blankForm`), persist

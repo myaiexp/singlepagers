@@ -13,8 +13,6 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>
-<!-- ExcelJS is loaded on demand from cdnjs (pinned by SRI) for .xlsx export.
-     If the load fails or hangs past 8s (offline venue), export falls back to JSON. -->
 <style>
   :root {
     --bg: #f3f4f6;
@@ -688,10 +686,9 @@ const labelFor = (arr, v) => (arr.find(x => x.v === v) || {}).label || "";
 function attLabel(v) { return labelFor(ATTENDANCE, v); }
 function recLabel(v) { return labelFor(RECOMMEND, v); }
 
-// ExcelJS is pulled from cdnjs on first export (not at page load), pinned to an
-// exact version by Subresource Integrity so a tampered CDN payload is rejected.
-// Offline / CDN failure / hung request (8s) → exportJsonFallback() (same three
-// sheets, no network). Timeout drops the cached promise so a retry can start over.
+// Load strategy and fallback: see the CSP comment in <head>. SRI rejects a
+// tampered CDN payload; a failure or timeout drops the cached promise so the
+// next export can retry the load.
 const EXCELJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
 const EXCELJS_SRI = "sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw==";
 let excelJsLoad = null;

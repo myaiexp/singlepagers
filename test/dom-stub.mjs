@@ -51,6 +51,23 @@ function makeElement() {
   });
 }
 
+// Set-backed classList for the elements a test needs to observe. Not the stub
+// default: palaute branches on classList.contains('hidden'), and its tests are
+// written against the stub's always-false contains().
+export function recordingClassList() {
+  const names = new Set();
+  return {
+    add(...c) { c.forEach((n) => names.add(n)); },
+    remove(...c) { c.forEach((n) => names.delete(n)); },
+    toggle(n, force) {
+      const on = force === undefined ? !names.has(n) : !!force;
+      if (on) names.add(n); else names.delete(n);
+      return on;
+    },
+    contains(n) { return names.has(n); },
+  };
+}
+
 // Array-like NodeList that yields a fake element for any index, so fixed-size loops
 // (e.g. the 5 dice) never hit `undefined.textContent`.
 export function makeNodeList(n = 5) {

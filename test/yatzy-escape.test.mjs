@@ -56,7 +56,6 @@ test('renderStatistics escapes the seated player name', () => {
       player1: { id: 'seat-xss', name: ${JSON.stringify(IMG)} },
       player2: { id: 'seat-2', name: ${JSON.stringify(ATTR)} },
     };
-    syncPlayerNamesView();
     saveAllStats({
       'seat-xss': {
         name: ${JSON.stringify(IMG)}, gamesPlayed: 1, wins: 1, losses: 0, draws: 0,
@@ -76,10 +75,9 @@ test('endGame escapes the winner name in #winnerText', () => {
       player1: { id: 'seat-xss', name: ${JSON.stringify(IMG)} },
       player2: { id: 'seat-2', name: 'Bob' },
     };
-    syncPlayerNamesView();
     player1Scores = ${JSON.stringify(scorecardTotalling(63, 50))};
     player2Scores = ${JSON.stringify(scorecardTotalling(0, 0))};
-    currentGameRolls = 13;
+    currentGameRolls = { 1: 13, 2: 13 };
     endGame();
   `);
   const html = game.elements.get('winnerText').innerHTML;

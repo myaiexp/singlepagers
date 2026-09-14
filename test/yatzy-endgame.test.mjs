@@ -7,13 +7,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadPage, createDocument } from './dom-stub.mjs';
+import { loadPage, createDocument, recordingClassList } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
 // Same identity-preserving getElementById as yatzy-bonus.test.mjs so
-// endGame's write to #winnerText is readable afterwards.
+// endGame's write to #winnerText (and #gameOver's class) is readable afterwards.
 function loadGame() {
   const elements = new Map();
   const { run, sandbox } = loadPage(yatzyPath, {
@@ -22,7 +22,11 @@ function loadGame() {
       sb.document = {
         ...doc,
         getElementById(id) {
-          if (!elements.has(id)) elements.set(id, doc.getElementById(id));
+          if (!elements.has(id)) {
+            const el = doc.getElementById(id);
+            el.classList = recordingClassList();
+            elements.set(id, el);
+          }
           return elements.get(id);
         },
       };
@@ -52,13 +56,13 @@ function playToEnd(p1Lower, p2Lower) {
   // upper=0 on both sides: no bonus, grand total === lower.
   game.run(
     `players = { player1: { id: 'seat-1', name: 'Alice' }, player2: { id: 'seat-2', name: 'Bob' } };
-     playerNames = { player1: 'Alice', player2: 'Bob' };
      player1Scores = ${JSON.stringify(scorecardTotalling(0, p1Lower))};
      player2Scores = ${JSON.stringify(scorecardTotalling(0, p2Lower))};
-     currentGameRolls = 13;
+     currentGameRolls = { 1: 13, 2: 11 };
      endGame();`,
   );
   return {
+    gameOverShown: game.elements.get('gameOver').classList.contains('show'),
     p1: game.run(`getPlayerStats('seat-1')`),
     p2: game.run(`getPlayerStats('seat-2')`),
     winnerText: game.elements.get('winnerText').innerHTML,
@@ -88,9 +92,13 @@ const cases = [
 
 for (const c of cases) {
   test(`endGame records ${c.name} from the scorecards`, () => {
-    const { p1, p2, winnerText } = playToEnd(c.p1Lower, c.p2Lower);
+    const { p1, p2, winnerText, gameOverShown } = playToEnd(c.p1Lower, c.p2Lower);
     assert.deepEqual(wld(p1), c.p1, `Alice W-L-D for ${c.name}`);
     assert.deepEqual(wld(p2), c.p2, `Bob W-L-D for ${c.name}`);
     assert.match(winnerText, c.text);
+    assert.equal(gameOverShown, true, 'the game-over overlay is shown');
+    // finding #9577: each seat is credited with its own rolls.
+    assert.equal(p1.totalRolls, 13);
+    assert.equal(p2.totalRolls, 11);
   });
 }

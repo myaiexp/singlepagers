@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
 // Run the page's real <script> against the no-deps DOM stub, then return the
-// resulting localStorage. loadPlayerNames (and stats migration) runs in init().
+// resulting localStorage. initSeats (and stats migration) runs in init().
 function simulateLoad(seed) {
   const { sandbox } = loadPage(yatzyPath, { seed });
   return sandbox.localStorage;

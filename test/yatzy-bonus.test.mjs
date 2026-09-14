@@ -101,7 +101,7 @@ function recordedBonusCount(game, upper) {
     `players = { player1: { id: 'seat-1', name: 'Alice' }, player2: { id: 'seat-2', name: 'Bob' } };
      player1Scores = ${JSON.stringify(scorecardTotalling(upper, 10))};
      player2Scores = ${JSON.stringify(scorecardTotalling(0, 0))};
-     currentGameRolls = 13;
+     currentGameRolls = { 1: 13, 2: 13 };
      endGame();`,
   );
   return game.run(`getPlayerStats('seat-1').bonusCount;`);

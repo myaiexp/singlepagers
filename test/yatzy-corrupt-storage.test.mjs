@@ -27,7 +27,9 @@ function loadWith(seed) {
 
 // Finish one game so the stats writer runs.
 function playOneGame(run) {
-  run(`updateGameStatistics(1, 250, 200, true, false, false, false);`);
+  run(`updateGameStatistics(1,
+         { score: 250, bonus: true, yatzy: false, rolls: 13 },
+         { score: 200, bonus: false, yatzy: false, rolls: 13 });`);
 }
 
 // --- yatzy_statistics --------------------------------------------------------
@@ -101,7 +103,7 @@ test('a corrupt legacy names blob is not destroyed while it is the only name cop
     'the unreadable legacy names blob must survive intact');
   const recovered = JSON.parse(ls.getItem('yatzy_playerNames_recovery') || 'null');
   assert.equal(recovered?.player1, 'Player 1',
-    'derived names view must be written to the recovery copy');
+    'the names blob built from the seats must be written to the recovery copy');
   assert.equal(recovered?.player2, 'Player 2');
   const seats = JSON.parse(ls.getItem('yatzy_players') || 'null');
   assert.ok(seats?.player1?.id, 'fresh seat ids must be minted on the canonical players key');

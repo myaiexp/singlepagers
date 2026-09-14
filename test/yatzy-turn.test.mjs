@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadPage } from './dom-stub.mjs';
+import { loadPage, recordingClassList } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
@@ -17,12 +17,18 @@ function loadGame() {
   let nextId = 1;
   const { sandbox, run } = loadPage(yatzyPath, {
     patch(s) {
-      const byId = new Map();
-      const origGet = s.document.getElementById.bind(s.document);
-      s.document.getElementById = (id) => {
-        if (!byId.has(id)) byId.set(id, origGet(id));
-        return byId.get(id);
+      // Identity-preserving lookups with a real classList, so #gameOver's
+      // `show` and the score-flash row's `just-scored` can be read back.
+      const remember = (map, orig) => (key) => {
+        if (!map.has(key)) {
+          const el = orig(key);
+          el.classList = recordingClassList();
+          map.set(key, el);
+        }
+        return map.get(key);
       };
+      s.document.getElementById = remember(new Map(), s.document.getElementById.bind(s.document));
+      s.document.querySelector = remember(new Map(), s.document.querySelector.bind(s.document));
       s.setTimeout = (fn) => {
         const id = nextId++;
         timers.push({ id, fn });
@@ -40,7 +46,7 @@ function loadGame() {
     currentPlayer = 1;
     rollsRemaining = 3;
     hasRolled = false;
-    currentGameRolls = 0;
+    currentGameRolls = { 1: 0, 2: 0 };
     keptDice = [false, false, false, false, false];
     diceValues = [1, 2, 3, 4, 5];
     player1Scores = JSON.parse(JSON.stringify(scoreCategories));
@@ -70,13 +76,13 @@ test('double-invoking rollDice during the settle window consumes one roll, not t
   sandbox.rollDice();
 
   assert.equal(read('rollsRemaining'), 3, 'rollsRemaining must not drop until the settle callback');
-  assert.equal(read('currentGameRolls'), 1, 'second click must not count as a second roll');
+  assert.equal(read('currentGameRolls[1]'), 1, 'second click must not count as a second roll');
   assert.equal(rollBtn().disabled, true, 'Roll button stays disabled while dice are settling');
 
   flush();
 
   assert.equal(read('rollsRemaining'), 2, `expected one roll consumed, got remaining=${read('rollsRemaining')}`);
-  assert.equal(read('currentGameRolls'), 1);
+  assert.equal(read('currentGameRolls[1]'), 1);
   assert.equal(rollBtn().disabled, false, 'Roll button re-enables when rolls remain');
 });
 
@@ -135,19 +141,22 @@ test('rollDice then scoreCategory then nextTurn runs as one turn sequence', () =
   flush();
   assert.equal(read('rollsRemaining'), 2, 'next player auto-roll consumes one roll');
   assert.equal(read('currentPlayer'), 2);
+  // finding #9577: the auto-roll is player 2's, not added to player 1's count.
+  assert.equal(read('currentGameRolls[1]'), 1);
+  assert.equal(read('currentGameRolls[2]'), 1);
 });
 
 test('newGame during a pending roll cancels the in-flight settle', () => {
   const { sandbox, flush, read } = loadGame();
 
   sandbox.rollDice();
-  assert.equal(read('currentGameRolls'), 1);
+  assert.equal(read('currentGameRolls[1]'), 1);
   sandbox.newGame();
   flush();
 
   assert.equal(read('currentPlayer'), 1);
   assert.equal(read('rollsRemaining'), 2, 'only the new-game opening roll should settle');
-  assert.equal(read('currentGameRolls'), 1, 'newGame resets the counter then auto-rolls once');
+  assert.equal(read('currentGameRolls[1]'), 1, 'newGame resets the counter then auto-rolls once');
 });
 
 test('sequential rolls after each settle still consume one roll each', () => {
@@ -161,13 +170,109 @@ test('sequential rolls after each settle still consume one roll each', () => {
   flush();
 
   assert.equal(read('rollsRemaining'), 0);
-  assert.equal(read('currentGameRolls'), 3);
+  assert.equal(read('currentGameRolls[1]'), 3);
   assert.equal(rollBtn().disabled, true, 'Roll button disables when no rolls remain');
 
   sandbox.rollDice();
   flush();
   assert.equal(read('rollsRemaining'), 0, 'a fourth roll must be a no-op');
-  assert.equal(read('currentGameRolls'), 3);
+  assert.equal(read('currentGameRolls[1]'), 3);
+});
+
+// --- player 2 and the end of the game (finding #10355, #9576) ---------------
+// Every other turn test scores as player 1 on an empty card, so scoreCategory's
+// player2Scores branch and its isGameOver → endGame path were never entered.
+
+// Fill every category on one card with 0, leaving `except` open.
+function fillCard(read, card, except = null) {
+  read(`[...${card}.upper, ...${card}.lower].forEach(c => {
+    if (c.id !== ${JSON.stringify(except)}) c.value = 0;
+  })`);
+}
+
+function spy(sandbox, name) {
+  const calls = { count: 0 };
+  const original = sandbox[name];
+  sandbox[name] = (...args) => {
+    calls.count++;
+    return original(...args);
+  };
+  return calls;
+}
+
+test('scoring as player 2 fills player2Scores, not player 1\'s card', () => {
+  const { sandbox, flush, read } = loadGame();
+  read('currentPlayer = 2');
+  sandbox.rollDice();
+  flush();
+
+  const settledSum = read('diceValues.reduce((a, b) => a + b, 0)');
+  sandbox.scoreCategory('chance');
+
+  assert.equal(read(`player2Scores.lower.find(c => c.id === 'chance').value`), settledSum);
+  assert.equal(read(`player1Scores.lower.find(c => c.id === 'chance').value`), null,
+    'seat 1\'s card must be untouched');
+  assert.equal(read('currentPlayer'), 1, 'the turn passes back to player 1');
+  assert.equal(read('currentGameRolls[2]'), 1);
+});
+
+test('scoring the last open cell ends the game instead of passing the turn', () => {
+  const { sandbox, flush, read } = loadGame();
+  fillCard(read, 'player1Scores');
+  fillCard(read, 'player2Scores', 'chance');
+  read('currentPlayer = 2');
+  const nextTurn = spy(sandbox, 'nextTurn');
+  const endGame = spy(sandbox, 'endGame');
+
+  sandbox.rollDice();
+  flush();
+  sandbox.scoreCategory('chance');
+
+  assert.equal(endGame.count, 1, 'the final cell must end the game');
+  assert.equal(nextTurn.count, 0, 'a finished game must not start another turn');
+  assert.equal(read('currentPlayer'), 2);
+  assert.equal(sandbox.document.getElementById('gameOver').classList.contains('show'), true,
+    'the game-over overlay is shown');
+  assert.match(sandbox.document.getElementById('winnerText').innerHTML, /Player 2 Wins!/,
+    'player 1 scored 0 everywhere, so the settled chance roll wins it for player 2');
+
+  const p1 = read('getPlayerStats(players.player1.id)');
+  const p2 = read('getPlayerStats(players.player2.id)');
+  assert.deepEqual([p1.gamesPlayed, p1.losses, p1.totalRolls], [1, 1, 0]);
+  assert.deepEqual([p2.gamesPlayed, p2.wins, p2.totalRolls], [1, 1, 1]);
+});
+
+test('a complete card does not end the game while the other still has an open cell', () => {
+  const { sandbox, flush, read } = loadGame();
+  fillCard(read, 'player1Scores', 'chance');
+  fillCard(read, 'player2Scores', 'chance');
+  read('currentPlayer = 2');
+  const nextTurn = spy(sandbox, 'nextTurn');
+  const endGame = spy(sandbox, 'endGame');
+
+  sandbox.rollDice();
+  flush();
+  sandbox.scoreCategory('chance');
+
+  assert.equal(endGame.count, 0, 'player 1 still has chance open');
+  assert.equal(nextTurn.count, 1);
+  assert.equal(read('currentPlayer'), 1);
+});
+
+test('the score flash lands on the scoring player\'s row, not the next player\'s', () => {
+  const { sandbox, flush, read } = loadGame();
+  sandbox.rollDice();
+  flush();
+  sandbox.scoreCategory('chance');
+  assert.equal(read('currentPlayer'), 2, 'the turn has passed before the flash timer fires');
+
+  flush(); // the 100ms flash timer (plus player 2's settle)
+
+  const row = (player) =>
+    sandbox.document.querySelector(`#scorecardBody${player} [data-cat-id="chance"]`);
+  assert.equal(row(1).classList.contains('just-scored'), true, 'player 1 scored chance');
+  assert.equal(row(2).classList.contains('just-scored'), false,
+    'player 2\'s unfilled chance row must not flash');
 });
 
 // --- kept dice / toggleKeepDie / getDieFace (finding #8960) -----------------

@@ -15,7 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const yatzyPath = join(here, '..', 'yatzy.html');
 
 // Fresh sandbox per test: empty localStorage, page script loaded. After load,
-// seat ids exist (loadPlayerNames ran during init); we then pin known names.
+// seat ids exist (initSeats ran during init); we then pin known names.
 //
 // getElementById is identity-preserving (same pattern as yatzy-bonus.test.mjs)
 // so applyPlayerNameEdit can read back the name inputs we just filled.
@@ -39,17 +39,17 @@ function loadGame() {
        player1: { id: players?.player1?.id || newPlayerId(), name: 'Alice' },
        player2: { id: players?.player2?.id || newPlayerId(), name: 'Bob' }
      };
-     syncPlayerNamesView();
      savePlayersToStorage();`,
   );
   return { run };
 }
 
 // Record one finished game. winner: 0 tie, 1 player1, 2 player2.
-function playGame({ run }, { winner, p1Score, p2Score, p1Bonus = false, p2Bonus = false, p1Yatzy = false, p2Yatzy = false, rolls = 13 }) {
+function playGame({ run }, { winner, p1Score, p2Score, p1Bonus = false, p2Bonus = false, p1Yatzy = false, p2Yatzy = false, p1Rolls = 13, p2Rolls = 13 }) {
   run(
-    `currentGameRolls = ${rolls};
-     updateGameStatistics(${winner}, ${p1Score}, ${p2Score}, ${p1Bonus}, ${p2Bonus}, ${p1Yatzy}, ${p2Yatzy});`,
+    `updateGameStatistics(${winner},
+       { score: ${p1Score}, bonus: ${p1Bonus}, yatzy: ${p1Yatzy}, rolls: ${p1Rolls} },
+       { score: ${p2Score}, bonus: ${p2Bonus}, yatzy: ${p2Yatzy}, rolls: ${p2Rolls} });`,
   );
 }
 
@@ -95,14 +95,29 @@ test('wins + losses + draws equals gamesPlayed across mixed results', () => {
 
 test('per-player accumulators track rolls, points, highest, bonus, yatzy', () => {
   const s = loadGame();
-  playGame(s, { winner: 1, p1Score: 100, p2Score: 90, p1Bonus: true, p1Yatzy: true, rolls: 10 });
-  playGame(s, { winner: 2, p1Score: 250, p2Score: 300, rolls: 12 });
+  playGame(s, { winner: 1, p1Score: 100, p2Score: 90, p1Bonus: true, p1Yatzy: true, p1Rolls: 10, p2Rolls: 14 });
+  playGame(s, { winner: 2, p1Score: 250, p2Score: 300, p1Rolls: 12, p2Rolls: 9 });
   const a = statsOfId(s, seatId(s, 'player1'));
+  const b = statsOfId(s, seatId(s, 'player2'));
+  // finding #9577: each seat is credited with its own rolls, not the game's.
   assert.equal(a.totalRolls, 22);
+  assert.equal(b.totalRolls, 23);
   assert.equal(a.totalPoints, 350);
   assert.equal(a.highestScore, 250); // max of 100 and 250, not the latest
   assert.equal(a.bonusCount, 1);
   assert.equal(a.yatzysScored, 1);
+  assert.equal(b.bonusCount, 0);
+  assert.equal(b.yatzysScored, 0);
+});
+
+test('an unknown winner or outcome throws before any counter moves', () => {
+  const s = loadGame();
+  const line = '{ score: 100, bonus: false, yatzy: false, rolls: 13 }';
+  assert.throws(() => s.run(`updateGameStatistics(3, ${line}, ${line});`), /unknown winner/);
+  assert.throws(() => s.run(`updateOnePlayerStats(players.player1, { ...${line}, outcome: 'forfeit' });`),
+    /unknown game outcome/);
+  assert.equal(statsOfId(s, seatId(s, 'player1')).gamesPlayed, 0);
+  assert.equal(statsOfId(s, seatId(s, 'player2')).gamesPlayed, 0);
 });
 
 // finding #2963 / audit #8962: rename mid-game must not fork stats into a new key.
