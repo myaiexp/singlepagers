@@ -17,7 +17,14 @@ function loadPage({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTim
   const { run } = bootPage(palautePath, {
     patch(sandbox) {
       if (realTimers) {
-        sandbox.setTimeout = setTimeout;
+        // Long timers (downloadBlob's deferred revoke) are unref'd so they do
+        // not hold this test process open; the short ExcelJS timeout must stay
+        // ref'd because the test awaits the rejection it produces.
+        sandbox.setTimeout = (fn, ms, ...args) => {
+          const t = setTimeout(fn, ms, ...args);
+          if (ms >= 1000) t.unref();
+          return t;
+        };
         sandbox.clearTimeout = clearTimeout;
       }
       sandbox.alert = (msg) => { alerts.push(String(msg)); };
@@ -125,6 +132,41 @@ test('exportExcel with zero forms alerts and does not download', async () => {
     alerts.some(a => a.includes('Ei vielä tallennettuja lomakkeita')),
     'operator is told there is nothing to export',
   );
+});
+
+// downloadBlob is the only path that gets responses off the device. Revoking the
+// object URL in the same tick as click() can fail the download silently
+// (finding #9585), so the revoke must be scheduled, not run inline.
+test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () => {
+  const log = [];
+  const timers = [];
+  const { run } = bootPage(palautePath, {
+    patch(sandbox) {
+      sandbox.Blob = function Blob(parts, opts) { this.type = opts?.type || ''; };
+      sandbox.URL = {
+        createObjectURL: () => 'blob:stub',
+        revokeObjectURL: (url) => log.push(`revoke ${url}`),
+      };
+      sandbox.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+      const orig = sandbox.document.createElement;
+      sandbox.document.createElement = (tag) => {
+        const el = orig(tag);
+        if (tag === 'a') el.click = () => log.push(`click ${el.download}`);
+        return el;
+      };
+    },
+  });
+  run(`forms = ${JSON.stringify(FORMS)};`);
+  run('exportJsonFallback()');
+
+  assert.equal(log.length, 1, 'only the click runs synchronously');
+  assert.match(log[0], /^click palaute-huippu2026-.*\.json$/);
+  const revoke = timers.find(t => t.ms === run('BLOB_REVOKE_DELAY_MS'));
+  assert.ok(revoke, 'the revoke is scheduled on a BLOB_REVOKE_DELAY_MS timer');
+  assert.ok(run('BLOB_REVOKE_DELAY_MS') >= 10000, 'the delay leaves the download time to start');
+
+  revoke.fn();
+  assert.deepEqual(log.slice(1), ['revoke blob:stub'], 'the timer revokes the same object URL');
 });
 
 // SRI wiring is independent of whether the script actually loads: dropping

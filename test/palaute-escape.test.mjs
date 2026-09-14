@@ -43,6 +43,26 @@ test('renderReview escapes free-text snippets (not raw innerHTML)', () => {
   assertEscaped(html, 'renderReview');
 });
 
+// load() accepts any JSON array, so a crafted row id reaches the data-edit /
+// data-del attributes verbatim (finding #10359). The snippet test above uses a
+// safe id, which is why dropping escapeHtml(f.id) used to stay green.
+test('renderReview escapes form ids inside data-edit / data-del', () => {
+  const { run } = loadPalaute();
+  const id = IMG + ATTR;
+  run(`forms = [{
+    id: ${JSON.stringify(id)}, attendance: 'both', ratings: [5, 4, 3, 2, 1, 5, 4],
+    recommend: 'kylla', free: { best: '', improve: '', topics: '', open: '' },
+    name: '', phone: '',
+  }];
+  renderReview();`);
+  const html = run('reviewEl.innerHTML');
+  const escaped = '&lt;img src=x onerror=alert(1)&gt;&quot; onmouseover=x';
+  assert.ok(html.includes(`data-edit="${escaped}"`), 'data-edit carries the escaped id');
+  assert.ok(html.includes(`data-del="${escaped}"`), 'data-del carries the escaped id');
+  assert.doesNotMatch(html, /<img/, 'the id must not emit a raw <img tag');
+  assert.doesNotMatch(html, /" onmouseover=/, 'the id must not break out of its attribute');
+});
+
 test('renderEntry escapes free-text, name, and phone into the form markup', () => {
   const { run } = loadPalaute();
   run(`current = blankForm();

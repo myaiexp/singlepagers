@@ -193,6 +193,42 @@ test('corrupt localStorage alerts, does not clobber the blob, and persist writes
   assert.equal(recovered[0].attendance, 'both');
 });
 
+// Valid JSON that is not an array is just as damaged as a parse error (finding
+// #10358): without load()'s Array.isArray guard, '{}' / 'null' would become
+// `forms`, saveForm's push would throw or persist would rewrite the only copy
+// of event responses. Seeding only '{not-json' left that guard untested.
+for (const blob of ['{}', 'null', '42', '"text"']) {
+  test(`non-array store ${blob} is kept, and saves divert to the recovery key across reloads`, () => {
+    const first = loadPage({ [STORAGE_KEY]: blob });
+    assert.equal(first.run('storageUnreadable'), true);
+    assert.equal(first.run('Array.isArray(forms) && forms.length'), 0,
+      'a non-array store boots as an empty array, not as the parsed value');
+    assert.ok(first.alerts.some(a => /vioittun|lukea/i.test(a)),
+      'operator is warned that the store could not be read');
+
+    fillCurrent(first.run);
+    first.run('saveForm()');
+    assert.equal(first.sandbox.localStorage.getItem(STORAGE_KEY), blob,
+      'saveForm must not overwrite the non-array blob');
+    assert.equal(stored(first.sandbox, RECOVERY_KEY).length, 1,
+      'the save lands on the recovery key');
+
+    // Reload with both keys present: load() must read the recovery copy back
+    // and keep diverting, not return to the canonical key.
+    const second = loadPage({
+      [STORAGE_KEY]: blob,
+      [RECOVERY_KEY]: first.sandbox.localStorage.getItem(RECOVERY_KEY),
+    });
+    assert.equal(second.run('storageUnreadable'), true);
+    assert.equal(second.run('forms.length'), 1, 'recovery rows are read back after reload');
+    fillCurrent(second.run);
+    second.run('saveForm()');
+    assert.equal(second.sandbox.localStorage.getItem(STORAGE_KEY), blob,
+      'a save after reload still leaves the canonical blob untouched');
+    assert.equal(stored(second.sandbox, RECOVERY_KEY).length, 2);
+  });
+}
+
 test('load() prefers the recovery key when the primary blob is corrupt', () => {
   const recovered = [{
     id: 'rec-1', attendance: 'thu', ratings: [4, 4, 4, 4, 4, 4, 4],

@@ -421,13 +421,13 @@ function escapeHtml(s) {
  * ------------------------------------------------------------------ */
 function bindEntry() {
   entryEl.querySelectorAll(".att").forEach(b =>
-    b.onclick = () => { current.attendance = b.dataset.v; cursor = { sec: "rating", row: 0 }; renderEntry(); });
+    b.onclick = () => selectAttendance(b.dataset.v));
 
   entryEl.querySelectorAll(".gcell[data-row]").forEach(c =>
     c.onclick = () => setRating(+c.dataset.row, +c.dataset.val));
 
   entryEl.querySelectorAll(".rec").forEach(b =>
-    b.onclick = () => { current.recommend = b.dataset.v; cursor = null; focusFirstText(); renderEntry(); });
+    b.onclick = () => selectRecommend(b.dataset.v));
 
   FREETEXT.forEach(ft => {
     const ta = entryEl.querySelector(`#ft-${ft.key}`);
@@ -445,10 +445,27 @@ function bindEntry() {
   if (cb) cb.onclick = cancelEdit;
 }
 
+// Mouse (bindEntry) and keyboard (routeNumberKey) both pick through these three,
+// so the cursor hand-off cannot drift between the two paths.
+function selectAttendance(v) {
+  current.attendance = v;
+  cursor = { sec: "rating", row: 0 };
+  renderEntry();
+}
+
 function setRating(row, val) {
   current.ratings[row] = val === 0 ? null : val;
   cursor = row < RATING_ITEMS.length - 1 ? { sec: "rating", row: row + 1 } : { sec: "rec" };
   renderEntry();
+}
+
+function selectRecommend(v) {
+  current.recommend = v;
+  cursor = null;
+  // Render before focusing: renderEntry replaces entryEl.innerHTML, so a
+  // textarea focused first is detached and focus falls back to <body>.
+  renderEntry();
+  focusFirstText();
 }
 
 function refreshCursor() {
@@ -661,20 +678,11 @@ document.addEventListener("keydown", e => {
 
 function routeNumberKey(n) {
   if (cursor?.sec === "att") {
-    if (n >= 1 && n <= ATTENDANCE.length) {
-      current.attendance = ATTENDANCE[n - 1].v;
-      cursor = { sec: "rating", row: 0 };
-      renderEntry();
-    }
+    if (n >= 1 && n <= ATTENDANCE.length) selectAttendance(ATTENDANCE[n - 1].v);
   } else if (cursor?.sec === "rating") {
     setRating(cursor.row, n); // n=0 skips
   } else if (cursor?.sec === "rec") {
-    if (n >= 1 && n <= RECOMMEND.length) {
-      current.recommend = RECOMMEND[n - 1].v;
-      cursor = null;
-      focusFirstText();
-      renderEntry();
-    }
+    if (n >= 1 && n <= RECOMMEND.length) selectRecommend(RECOMMEND[n - 1].v);
   }
 }
 
@@ -814,6 +822,11 @@ function buildSheet(wb, name, { rows, widths, style }) {
   return ws;
 }
 
+// The browser fetches a download's blob after click() returns; revoking the URL
+// in the same tick can fail the download with nothing reported to the page, so
+// the revoke waits (FileSaver.js does the same).
+const BLOB_REVOKE_DELAY_MS = 60000;
+
 // Accept either a Blob or a buffer/ArrayBuffer (xlsx writeBuffer).
 function downloadBlob(data, filename) {
   const blob = data instanceof Blob ? data : new Blob([data], {
@@ -823,7 +836,8 @@ function downloadBlob(data, filename) {
   const a = document.createElement("a");
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), BLOB_REVOKE_DELAY_MS);
 }
 
 // Row accumulator for building a sheet's array-of-arrays: addRow appends a row
@@ -876,34 +890,34 @@ function sheetSummary() {
   const titleRow = rb.addRow(["Yhteenveto — Työhyvinvoinnin huipulla 2026"]);
   const subRow = rb.addRow([`Vastauksia yhteensä: ${forms.length}`]);
   rb.addRow([]);
-  const osalRow = rb.addRow(["Osallistuminen", "kpl"]);
+  const attendanceRow = rb.addRow(["Osallistuminen", "kpl"]);
   ATTENDANCE.forEach(a => rb.addRow([a.label, forms.filter(f => f.attendance === a.v).length]));
   rb.addRow([]);
-  const arvHeader = rb.addRow(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
-  const arvFirst = rb.count + 1;
+  const ratingHeaderRow = rb.addRow(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
+  const ratingFirstRow = rb.count + 1;
   RATING_ITEMS.forEach((label, i) => {
     const vals = forms.map(f => f.ratings[i]).filter(v => v != null);
     const counts = [1,2,3,4,5].map(n => forms.filter(f => f.ratings[i] === n).length);
     const avg = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "";
     rb.addRow([label, ...counts, vals.length, avg]);
   });
-  const arvLast = rb.count;
+  const ratingLastRow = rb.count;
   rb.addRow([]);
-  const suosRow = rb.addRow(["Suosittelisi kollegalle", "kpl"]);
+  const recommendRow = rb.addRow(["Suosittelisi kollegalle", "kpl"]);
   RECOMMEND.forEach(rc => rb.addRow([rc.label, forms.filter(f => f.recommend === rc.v).length]));
 
   const style = (ws) => {
     ws.getCell(titleRow, 1).font = { bold: true, size: 14, color: { argb: XL.tealDark } };
     ws.getCell(subRow, 1).font = { italic: true, color: { argb: "FF6B7280" } };
-    styleSectionRow(ws, osalRow, 2);
-    styleSectionRow(ws, suosRow, 2);
-    styleHeaderRow(ws, arvHeader, 8);
-    bordersFor(ws, arvHeader, arvLast, 1, 8);
-    centerCells(ws, arvFirst, arvLast, [2, 3, 4, 5, 6, 7, 8]);
-    for (let rr = arvFirst; rr <= arvLast; rr++) ws.getCell(rr, 8).numFmt = "0.0";
+    styleSectionRow(ws, attendanceRow, 2);
+    styleSectionRow(ws, recommendRow, 2);
+    styleHeaderRow(ws, ratingHeaderRow, 8);
+    bordersFor(ws, ratingHeaderRow, ratingLastRow, 1, 8);
+    centerCells(ws, ratingFirstRow, ratingLastRow, [2, 3, 4, 5, 6, 7, 8]);
+    for (let rr = ratingFirstRow; rr <= ratingLastRow; rr++) ws.getCell(rr, 8).numFmt = "0.0";
     // Red→amber→green colour scale on the average column only
     ws.addConditionalFormatting({
-      ref: `H${arvFirst}:H${arvLast}`,
+      ref: `H${ratingFirstRow}:H${ratingLastRow}`,
       rules: [{
         type: "colorScale",
         cfvo: [{ type: "num", value: 1 }, { type: "num", value: 3 }, { type: "num", value: 5 }],
