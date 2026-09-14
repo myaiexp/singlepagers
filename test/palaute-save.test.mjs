@@ -7,17 +7,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadPage as bootPage } from './dom-stub.mjs';
+import { loadPage } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 const STORAGE_KEY = 'palaute_huippu2026_v1';
 const RECOVERY_KEY = STORAGE_KEY + '_recovery';
 
-function loadPage(seed = {}, { confirmValue = false } = {}) {
+function bootPalaute(seed = {}, { confirmValue = false } = {}) {
   const alerts = [];
   const confirmCtl = { value: confirmValue };
-  const { sandbox, run } = bootPage(palautePath, {
+  const { sandbox, run } = loadPage(palautePath, {
     seed,
     patch(s) {
       s.alert = (msg) => { alerts.push(String(msg)); };
@@ -44,7 +44,7 @@ function stored(sandbox, key = STORAGE_KEY) {
 }
 
 test('saveForm persists a new form; load() round-trips it from localStorage', () => {
-  const { run, sandbox } = loadPage();
+  const { run, sandbox } = bootPalaute();
   fillCurrent(run);
   run('saveForm()');
 
@@ -54,6 +54,9 @@ test('saveForm persists a new form; load() round-trips it from localStorage', ()
   assert.equal(run('forms[0].attendance'), 'both');
   assert.equal(run('forms[0].ratings[0]'), 5);
   assert.equal(run('forms[0].free.best'), 'Hyva');
+  // Raffle contacts live in the saved form; dropping them loses the draw entry.
+  assert.equal(run('forms[0].name'), 'A');
+  assert.equal(run('forms[0].phone'), '111');
 
   assert.equal(run('current.id'), null, 'current is blank after new save');
   assert.ok(run('current.ratings.every(r => r === null)'));
@@ -64,14 +67,18 @@ test('saveForm persists a new form; load() round-trips it from localStorage', ()
   assert.equal(disk.length, 1);
   assert.equal(disk[0].id, run('forms[0].id'));
   assert.equal(disk[0].attendance, 'both');
+  assert.equal(disk[0].name, 'A');
+  assert.equal(disk[0].phone, '111');
 
   run('forms = load()');
   assert.equal(run('forms.length'), 1);
   assert.equal(run('forms[0].free.best'), 'Hyva');
+  assert.equal(run('forms[0].name'), 'A', 'raffle name survives a reload');
+  assert.equal(run('forms[0].phone'), '111', 'raffle phone survives a reload');
 });
 
 test('editForm + saveForm keeps one row, blanks current, and does not alias nested objects', () => {
-  const { run } = loadPage();
+  const { run, sandbox } = bootPalaute();
   fillCurrent(run);
   run('saveForm()');
   const originalId = run('forms[0].id');
@@ -81,13 +88,19 @@ test('editForm + saveForm keeps one row, blanks current, and does not alias nest
   // Working copy is already detached at edit start; hold the live ratings
   // array across save so a shallow { ...current } assign is visible.
   run('heldRatings = current.ratings; heldFree = current.free;');
-  run('current.ratings[0] = 1; current.free.best = "Muokattu";');
+  assert.equal(run('current.name'), 'A', 'editForm loads the raffle name');
+  run('current.ratings[0] = 1; current.free.best = "Muokattu"; current.phone = "222";');
   run('saveForm()');
 
   assert.equal(run('forms.length'), 1, 'edit-save must not push a duplicate');
   assert.equal(run('forms[0].id'), originalId);
   assert.equal(run('forms[0].ratings[0]'), 1);
   assert.equal(run('forms[0].free.best'), 'Muokattu');
+  assert.equal(run('forms[0].name'), 'A', 'edit-save keeps the untouched raffle name');
+  assert.equal(run('forms[0].phone'), '222', 'edit-save stores the edited raffle phone');
+  const disk = stored(sandbox);
+  assert.equal(disk[0].name, 'A');
+  assert.equal(disk[0].phone, '222');
   assert.equal(run('editingId'), null);
   assert.equal(run('current.id'), null, 'current must be blanked after edit-save');
   assert.ok(run('current.ratings.every(r => r === null)'));
@@ -106,7 +119,7 @@ test('editForm + saveForm keeps one row, blanks current, and does not alias nest
 });
 
 test('deleteForm removes the row and persists when confirmed', () => {
-  const { run, sandbox, confirmCtl } = loadPage();
+  const { run, sandbox, confirmCtl } = bootPalaute();
   fillCurrent(run);
   run('saveForm()');
   const id = run('forms[0].id');
@@ -123,7 +136,7 @@ test('deleteForm removes the row and persists when confirmed', () => {
 });
 
 test('clearAll wipes forms and storage when confirmed', () => {
-  const { run, sandbox, confirmCtl } = loadPage();
+  const { run, sandbox, confirmCtl } = bootPalaute();
   fillCurrent(run);
   run('saveForm()');
   fillCurrent(run);
@@ -142,7 +155,7 @@ test('clearAll wipes forms and storage when confirmed', () => {
 
 test('clearAll while the store is unreadable wipes both keys and returns writes to the canonical key', () => {
   const blob = '{not-json';
-  const { run, sandbox, confirmCtl } = loadPage(
+  const { run, sandbox, confirmCtl } = bootPalaute(
     { [STORAGE_KEY]: blob },
     { confirmValue: false },
   );
@@ -173,7 +186,7 @@ test('clearAll while the store is unreadable wipes both keys and returns writes 
 
 test('corrupt localStorage alerts, does not clobber the blob, and persist writes a recovery key', () => {
   const blob = '{not-json';
-  const { run, sandbox, alerts } = loadPage({ [STORAGE_KEY]: blob });
+  const { run, sandbox, alerts } = bootPalaute({ [STORAGE_KEY]: blob });
 
   assert.equal(run('forms.length'), 0, 'unreadable store boots as empty in-memory');
   assert.equal(run('storageUnreadable'), true);
@@ -199,7 +212,7 @@ test('corrupt localStorage alerts, does not clobber the blob, and persist writes
 // of event responses. Seeding only '{not-json' left that guard untested.
 for (const blob of ['{}', 'null', '42', '"text"']) {
   test(`non-array store ${blob} is kept, and saves divert to the recovery key across reloads`, () => {
-    const first = loadPage({ [STORAGE_KEY]: blob });
+    const first = bootPalaute({ [STORAGE_KEY]: blob });
     assert.equal(first.run('storageUnreadable'), true);
     assert.equal(first.run('Array.isArray(forms) && forms.length'), 0,
       'a non-array store boots as an empty array, not as the parsed value');
@@ -215,7 +228,7 @@ for (const blob of ['{}', 'null', '42', '"text"']) {
 
     // Reload with both keys present: load() must read the recovery copy back
     // and keep diverting, not return to the canonical key.
-    const second = loadPage({
+    const second = bootPalaute({
       [STORAGE_KEY]: blob,
       [RECOVERY_KEY]: first.sandbox.localStorage.getItem(RECOVERY_KEY),
     });
@@ -235,7 +248,7 @@ test('load() prefers the recovery key when the primary blob is corrupt', () => {
     recommend: 'kylla', free: { best: 'ok', improve: '', topics: '', open: '' },
     name: '', phone: '',
   }];
-  const { run } = loadPage({
+  const { run } = bootPalaute({
     [STORAGE_KEY]: '{nope',
     [RECOVERY_KEY]: JSON.stringify(recovered),
   });
@@ -249,7 +262,7 @@ test('load() prefers the recovery key when the primary blob is corrupt', () => {
 // reached disk. Replacing that alert with void() used to pass the suite, which
 // would leave a venue operator entering more forms that vanish on tab close.
 test('persist alerts on quota-exceeded and leaves in-memory forms intact', () => {
-  const { run, sandbox, alerts } = loadPage();
+  const { run, sandbox, alerts } = bootPalaute();
   run(`forms = [{
     id: 'keep-me', attendance: 'both', ratings: [5, 4, 3, 2, 1, 5, 4],
     recommend: 'kylla', free: { best: 'Hyva', improve: '', topics: '', open: '' },
@@ -274,7 +287,7 @@ test('persist alerts on quota-exceeded and leaves in-memory forms intact', () =>
 // `editingId = null` reset used to pass, which would strand the page in edit
 // mode after a cancel (the next save would overwrite the original row).
 test('cancelEdit clears editingId, blanks current, and shows the review view', () => {
-  const { run } = loadPage();
+  const { run } = bootPalaute();
   fillCurrent(run);
   run('saveForm()');
   const originalId = run('forms[0].id');

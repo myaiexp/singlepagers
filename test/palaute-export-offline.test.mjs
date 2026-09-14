@@ -6,15 +6,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadPage as bootPage, createExcelJSStub } from './dom-stub.mjs';
+import { loadPage, createExcelJSStub } from './dom-stub.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const palautePath = join(here, '..', 'palaute.html');
 
-function loadPage({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
+function bootPalaute({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
   const downloads = [];
   const alerts = [];
-  const { run } = bootPage(palautePath, {
+  const { run } = loadPage(palautePath, {
     patch(sandbox) {
       if (realTimers) {
         // Long timers (downloadBlob's deferred revoke) are unref'd so they do
@@ -46,7 +46,8 @@ function loadPage({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTim
     },
   });
 
-  // Force loadExcelJS to reject when ExcelJS is absent (script injection is a no-op under stub)
+  // Script injection is a no-op under the stub DOM, so the harness replaces
+  // loadExcelJS instead of waiting on a real script load that never fires.
   if (stubLoadExcelJS) {
     run(`loadExcelJS = () => Promise.reject(new Error('ExcelJS load failed'));`);
   }
@@ -60,7 +61,7 @@ const FORMS = [
 ];
 
 test('exportExcel falls back to JSON with three sheets when ExcelJS is unavailable', async () => {
-  const { run, downloads, alerts } = loadPage({ withExcelJS: false });
+  const { run, downloads, alerts } = bootPalaute({ withExcelJS: false });
   run(`forms = ${JSON.stringify(FORMS)};`);
   await run('exportExcel()');
 
@@ -81,7 +82,7 @@ test('exportExcel falls back to JSON with three sheets when ExcelJS is unavailab
 });
 
 test('exportJsonFallback alone produces the same three-sheet payload', () => {
-  const { run, downloads } = loadPage({ withExcelJS: false });
+  const { run, downloads } = bootPalaute({ withExcelJS: false });
   run(`forms = ${JSON.stringify(FORMS)};`);
   run('exportJsonFallback()');
   assert.equal(downloads.length, 1);
@@ -90,7 +91,7 @@ test('exportJsonFallback alone produces the same three-sheet payload', () => {
 });
 
 test('loadExcelJS times out, clears the cached promise, and lets a retry start fresh', async () => {
-  const { run } = loadPage({ stubLoadExcelJS: false, realTimers: true });
+  const { run } = bootPalaute({ stubLoadExcelJS: false, realTimers: true });
   run('EXCELJS_LOAD_TIMEOUT_MS = 40');
   const first = run('loadExcelJS()');
   await assert.rejects(first, /timed out/i);
@@ -101,7 +102,7 @@ test('loadExcelJS times out, clears the cached promise, and lets a retry start f
 }, { timeout: 2000 });
 
 test('exportExcel falls back to JSON when the ExcelJS script hangs past the timeout', async () => {
-  const { run, downloads, alerts } = loadPage({ stubLoadExcelJS: false, realTimers: true });
+  const { run, downloads, alerts } = bootPalaute({ stubLoadExcelJS: false, realTimers: true });
   run('EXCELJS_LOAD_TIMEOUT_MS = 40');
   run(`forms = ${JSON.stringify(FORMS)};`);
   await run('exportExcel()');
@@ -111,7 +112,7 @@ test('exportExcel falls back to JSON when the ExcelJS script hangs past the time
 }, { timeout: 2000 });
 
 test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
-  const { run, downloads, alerts } = loadPage({ withExcelJS: true });
+  const { run, downloads, alerts } = bootPalaute({ withExcelJS: true });
   run(`forms = ${JSON.stringify(FORMS)};`);
   await run('exportExcel()');
   assert.equal(downloads.length, 1);
@@ -124,7 +125,7 @@ test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
 // and a download of an empty workbook. Removing `if (!forms.length)` used to
 // pass the suite.
 test('exportExcel with zero forms alerts and does not download', async () => {
-  const { run, downloads, alerts } = loadPage({ withExcelJS: true });
+  const { run, downloads, alerts } = bootPalaute({ withExcelJS: true });
   run('forms = [];');
   await run('exportExcel()');
   assert.equal(downloads.length, 0, 'no workbook download for an empty store');
@@ -140,7 +141,7 @@ test('exportExcel with zero forms alerts and does not download', async () => {
 test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () => {
   const log = [];
   const timers = [];
-  const { run } = bootPage(palautePath, {
+  const { run } = loadPage(palautePath, {
     patch(sandbox) {
       sandbox.Blob = function Blob(parts, opts) { this.type = opts?.type || ''; };
       sandbox.URL = {
@@ -174,7 +175,7 @@ test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () 
 // suite) while the page starts executing an unverified third-party script.
 test('loadExcelJS pins integrity and anonymous crossOrigin on the injected script', () => {
   const created = [];
-  const { run } = bootPage(palautePath, {
+  const { run } = loadPage(palautePath, {
     patch(sandbox) {
       const orig = sandbox.document.createElement;
       sandbox.document.createElement = (tag) => {

@@ -71,7 +71,10 @@ test('a full number-key run lands every value in the right numeric slot', () => 
   presses.forEach((n) => {
     run(`routeNumberKey(${n})`);
     // The cursor never holds a string-encoded row at any point in the walk.
-    assert.notEqual(run('typeof cursor === "string"'), true);
+    assert.equal(run('cursor == null || typeof cursor.row !== "string"'), true);
+    if (run('cursor && cursor.sec === "rating"')) {
+      assert.equal(run('typeof cursor.row'), 'number');
+    }
   });
   // Compare via JSON: current.ratings is a cross-realm array, so strict deepEqual
   // would reject it on prototype identity alone.
