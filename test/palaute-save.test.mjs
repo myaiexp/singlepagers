@@ -5,22 +5,19 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage } from './dom-stub.mjs';
+import { loadPage, captureAlerts } from './dom-stub.mjs';
+import { PALAUTE_PATH } from './pages.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
 const STORAGE_KEY = 'palaute_huippu2026_v1';
 const RECOVERY_KEY = STORAGE_KEY + '_recovery';
 
 function bootPalaute(seed = {}, { confirmValue = false } = {}) {
-  const alerts = [];
+  let alerts;
   const confirmCtl = { value: confirmValue };
-  const { sandbox, run } = loadPage(palautePath, {
+  const { sandbox, run } = loadPage(PALAUTE_PATH, {
     seed,
     patch(s) {
-      s.alert = (msg) => { alerts.push(String(msg)); };
+      alerts = captureAlerts(s);
       s.confirm = () => confirmCtl.value;
     },
   });

@@ -9,19 +9,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { YATZY_PATH } from './pages.mjs';
 
 const CORRUPT = '{"player1": {"id": "seat-1"'; // truncated JSON — throws on parse
 
 // Load the page against a seeded localStorage and return both the store and a
 // runner, so a test can drive a game after the load.
 function loadWith(seed) {
-  const { sandbox, run } = loadPage(yatzyPath, { seed });
+  const { sandbox, run } = loadPage(YATZY_PATH, { seed });
   return { ls: sandbox.localStorage, run };
 }
 
@@ -130,7 +126,7 @@ test('a readable store is still written in place, with no recovery copy', () => 
 
 test('confirmResetStats clears both stats keys and returns writes to the canonical store', () => {
   const confirmCtl = { value: false };
-  const { sandbox, run } = loadPage(yatzyPath, {
+  const { sandbox, run } = loadPage(YATZY_PATH, {
     seed: { yatzy_statistics: CORRUPT },
     patch(s) { s.confirm = () => confirmCtl.value; },
   });

@@ -5,30 +5,18 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, recordingClassList } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { loadPage, stableElements } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
 
 function loadGame() {
   const timers = [];
   let nextId = 1;
-  const { sandbox, run } = loadPage(yatzyPath, {
+  const { sandbox, run } = loadPage(YATZY_PATH, {
     patch(s) {
-      // Identity-preserving lookups with a real classList, so #gameOver's
-      // `show` and the score-flash row's `just-scored` can be read back.
-      const remember = (map, orig) => (key) => {
-        if (!map.has(key)) {
-          const el = orig(key);
-          el.classList = recordingClassList();
-          map.set(key, el);
-        }
-        return map.get(key);
-      };
-      s.document.getElementById = remember(new Map(), s.document.getElementById.bind(s.document));
-      s.document.querySelector = remember(new Map(), s.document.querySelector.bind(s.document));
+      // Stable lookups with a recording classList, so #gameOver's `show` and
+      // the score-flash row's `just-scored` can be read back.
+      stableElements(s, { recordClasses: true });
+      stableElements(s, { method: 'querySelector', recordClasses: true });
       s.setTimeout = (fn) => {
         const id = nextId++;
         timers.push({ id, fn });

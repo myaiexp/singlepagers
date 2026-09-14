@@ -14,16 +14,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
+import { PALAUTE_PATH } from './pages.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
+const { run } = loadPage(PALAUTE_PATH);
 
-const { run } = loadPage(palautePath);
+// The page's own free-text keys, read from FREETEXT so fixtures seed fields the
+// form really has: KEY is the first question (`best`, "Mikä oli päivien parasta
+// antia?"), OTHER_KEY the second (`improve`).
+const [KEY, OTHER_KEY] = JSON.parse(run('JSON.stringify(FREETEXT.map(ft => ft.key))'));
 
-// Seed `forms` with one entry per answer to the "parasta" free-text question.
+// Seed `forms` with one entry per answer to free-text question `key`.
 // Only .free matters to the suggestion engine, so the rest of the shape is
 // irrelevant here — but blankForm() supplies it so the fixtures stay realistic.
 function seedAnswers(key, answers) {
@@ -38,7 +39,6 @@ const distinct = (key) => run(`JSON.stringify(distinctAnswers(${JSON.stringify(k
 const suggest = (key, input) =>
   JSON.parse(run(`JSON.stringify(suggestionsFor(${JSON.stringify(key)}, ${JSON.stringify(input)}));`));
 
-const KEY = 'parasta';
 const texts = (rows) => rows.map(r => r.text);
 
 // --- distinctAnswers: dedup + frequency -------------------------------------
@@ -72,10 +72,10 @@ test('distinctAnswers sorts by descending frequency', () => {
 
 test('distinctAnswers reads only the requested question', () => {
   run(`forms = [blankForm(), blankForm()];
-       forms[0].free.parasta = 'ruoka';
-       forms[1].free.kehitettavaa = 'jonotus';`);
-  assert.deepEqual(texts(JSON.parse(distinct('parasta'))), ['ruoka']);
-  assert.deepEqual(texts(JSON.parse(distinct('kehitettavaa'))), ['jonotus']);
+       forms[0].free[${JSON.stringify(KEY)}] = 'ruoka';
+       forms[1].free[${JSON.stringify(OTHER_KEY)}] = 'jonotus';`);
+  assert.deepEqual(texts(JSON.parse(distinct(KEY))), ['ruoka']);
+  assert.deepEqual(texts(JSON.parse(distinct(OTHER_KEY))), ['jonotus']);
 });
 
 // --- suggestionsFor: ranking ------------------------------------------------
@@ -146,14 +146,14 @@ test('suggestions carry the frequency the picker shows', () => {
 
 test('cloneForm is a deep copy, so editing a form cannot mutate the saved one', () => {
   run(`forms = [blankForm()];
-       forms[0].free.parasta = 'alkuperäinen';
+       forms[0].free[${JSON.stringify(KEY)}] = 'alkuperäinen';
        forms[0].ratings[0] = 5;
        const copy = cloneForm(forms[0]);
-       copy.free.parasta = 'muokattu';
+       copy.free[${JSON.stringify(KEY)}] = 'muokattu';
        copy.ratings[0] = 1;
        globalThis.__original = JSON.stringify(forms[0]);`);
   const original = JSON.parse(run('__original;'));
-  assert.equal(original.free.parasta, 'alkuperäinen');
+  assert.equal(original.free[KEY], 'alkuperäinen');
   assert.equal(original.ratings[0], 5);
 });
 

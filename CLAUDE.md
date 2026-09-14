@@ -68,7 +68,15 @@ monitoring: [`docs/exceljs.md`](docs/exceljs.md).
 No-deps `node:test` suite under `test/` (run `node --test test/*.test.mjs`).
 `loadPage` in `test/dom-stub.mjs` extracts each page's inline `<script>` and
 runs it under `node:vm` against a fake DOM — zero changes to the HTML under
-test. Excel export tests share `createExcelJSStub`.
+test. Shared harness pieces, so page tests do not re-roll them:
+
+- `test/dom-stub.mjs` — generic vm/DOM only: `loadPage`, the `patch` helpers
+  `stableElements` (one element per id, optional recording classList),
+  `captureAlerts`, `captureCreated`, and `createExcelJSStub`.
+- `test/pages.mjs` — `YATZY_PATH`, `PALAUTE_PATH`, `REPO_ROOT`.
+- `test/yatzy-fixtures.mjs` — `scorecardTotalling(run, upper, lower)`, built
+  from the page's own `scoreCategories`. Fixtures read the data model from the
+  loaded page (`scoreCategories`, `FREETEXT`) rather than restating ids.
 
 Page-script coverage is not `node --test --experimental-test-coverage` — that
 reporter prints 100% over zero files because the vm filenames

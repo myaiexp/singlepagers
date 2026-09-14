@@ -162,6 +162,51 @@ export function loadPage(htmlPath, { seed = {}, patch } = {}) {
   return { sandbox, run, loadError };
 }
 
+// --- sandbox patches --------------------------------------------------------
+// Call these from loadPage's `patch` so they apply before the page script runs.
+// Each returns the record it keeps, for the test to read afterwards.
+
+// Make document[method] return the SAME element for a given key. The stub
+// default hands out a fresh element per call, so a page's write
+// (`getElementById('x').innerHTML = …`) would be unreadable afterwards.
+// recordClasses gives each element a Set-backed classList (recordingClassList)
+// so class toggles like `show` can be read back. Returns the key → element Map.
+export function stableElements(sandbox, { method = 'getElementById', recordClasses = false } = {}) {
+  const elements = new Map();
+  const lookup = sandbox.document[method].bind(sandbox.document);
+  sandbox.document[method] = (key) => {
+    if (!elements.has(key)) {
+      const el = lookup(key);
+      if (recordClasses) el.classList = recordingClassList();
+      elements.set(key, el);
+    }
+    return elements.get(key);
+  };
+  return elements;
+}
+
+// Replace alert() with a recorder. Returns the array of messages, as strings.
+export function captureAlerts(sandbox) {
+  const alerts = [];
+  sandbox.alert = (msg) => { alerts.push(String(msg)); };
+  return alerts;
+}
+
+// Record every document.createElement call as { tag, el }. `onCreate(el, tag)`
+// runs before the element is handed to the page, so a test can stub a method
+// (an anchor's click) that the page calls straight away. Returns the array.
+export function captureCreated(sandbox, onCreate) {
+  const created = [];
+  const create = sandbox.document.createElement.bind(sandbox.document);
+  sandbox.document.createElement = (tag) => {
+    const el = create(tag);
+    if (typeof onCreate === 'function') onCreate(el, tag);
+    created.push({ tag, el });
+    return el;
+  };
+  return created;
+}
+
 // Chainable stand-in for ExcelJS cells/rows/columns so style() closures run
 // without modelling fonts, fills, or alignments.
 function excelChain() {

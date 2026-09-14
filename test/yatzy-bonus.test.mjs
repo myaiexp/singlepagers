@@ -9,43 +9,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createDocument } from './dom-stub.mjs';
+import { loadPage, stableElements } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
+import { scorecardTotalling } from './yatzy-fixtures.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
-
-// Load the page with a document whose getElementById returns the SAME element
-// for a given id, so renderScorecard's innerHTML write is readable afterwards.
-// The default stub hands out a fresh element per call, which would discard it.
+// One element per id, so renderScorecard's innerHTML write is readable afterwards.
 function loadGame() {
-  const elements = new Map();
-  const { run, sandbox } = loadPage(yatzyPath, {
-    patch(sb) {
-      const doc = createDocument();
-      sb.document = {
-        ...doc,
-        getElementById(id) {
-          if (!elements.has(id)) elements.set(id, doc.getElementById(id));
-          return elements.get(id);
-        },
-      };
-    },
+  let elements;
+  const { run, sandbox } = loadPage(YATZY_PATH, {
+    patch(sb) { elements = stableElements(sb); },
   });
   return { run, sandbox, elements };
-}
-
-// Build a scorecard whose upper section totals exactly `upper` and lower `lower`,
-// keeping the real {id, name, value} row shape renderCategoryRows reads.
-function scorecardTotalling(upper, lower) {
-  const row = (id, value) => ({ id, name: id, value });
-  return {
-    upper: [row('ones', upper), row('twos', 0), row('threes', 0),
-      row('fours', 0), row('fives', 0), row('sixes', 0)],
-    lower: [row('threeOfAKind', lower), row('fourOfAKind', 0), row('fullHouse', 0),
-      row('smallStraight', 0), row('largeStraight', 0), row('yatzy', 0), row('chance', 0)],
-  };
 }
 
 const bonusFor = ({ run }, upperTotal) => run(`bonusFor(${upperTotal});`);
@@ -65,7 +39,7 @@ test('bonusFor awards 50 from 63 upward and nothing below', () => {
 
 // Pull the bonus row's value out of the rendered scorecard HTML.
 function renderedBonus(game, upper, lower) {
-  game.run(`player1Scores = ${JSON.stringify(scorecardTotalling(upper, lower))};
+  game.run(`player1Scores = ${JSON.stringify(scorecardTotalling(game.run, upper, lower))};
             currentPlayer = 2; hasRolled = false;
             renderScorecard(1, false);`);
   const html = game.elements.get('scorecardBody1').innerHTML;
@@ -86,7 +60,7 @@ test('calculateGrandTotal adds exactly the shared bonus', () => {
   const game = loadGame();
   for (const upper of [62, 63]) {
     const total = game.run(
-      `calculateGrandTotal(${JSON.stringify(scorecardTotalling(upper, 10))});`,
+      `calculateGrandTotal(${JSON.stringify(scorecardTotalling(game.run, upper, 10))});`,
     );
     assert.equal(total - upper - 10, bonusFor(game, upper));
   }
@@ -99,8 +73,8 @@ test('calculateGrandTotal adds exactly the shared bonus', () => {
 function recordedBonusCount(game, upper) {
   game.run(
     `players = { player1: { id: 'seat-1', name: 'Alice' }, player2: { id: 'seat-2', name: 'Bob' } };
-     player1Scores = ${JSON.stringify(scorecardTotalling(upper, 10))};
-     player2Scores = ${JSON.stringify(scorecardTotalling(0, 0))};
+     player1Scores = ${JSON.stringify(scorecardTotalling(game.run, upper, 10))};
+     player2Scores = ${JSON.stringify(scorecardTotalling(game.run, 0, 0))};
      currentGameRolls = { 1: 13, 2: 13 };
      endGame();`,
   );
@@ -122,7 +96,7 @@ test('the reference card quotes the same threshold and award as the constants', 
   const game = loadGame();
   const threshold = game.run('UPPER_BONUS_THRESHOLD;');
   const points = game.run('UPPER_BONUS_POINTS;');
-  const html = readFileSync(yatzyPath, 'utf8');
+  const html = readFileSync(YATZY_PATH, 'utf8');
   const card = html.match(/🎯 Bonus Target[\s\S]*?<\/div>\s*<\/div>/);
   assert.ok(card, 'rules panel still has a Bonus Target tile');
   assert.match(card[0], new RegExp(`≥${threshold} in upper section`));

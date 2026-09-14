@@ -10,14 +10,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
+import { PALAUTE_PATH } from './pages.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
-
-const { run } = loadPage(palautePath);
+const { run } = loadPage(PALAUTE_PATH);
 const reset = () => run('current = blankForm(); cursor = { sec: "att" };');
 
 // --- The index is numeric at every step, not a parsed string -----------------

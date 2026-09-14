@@ -9,12 +9,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
+import { loadPage, captureCreated } from './dom-stub.mjs';
+import { PALAUTE_PATH } from './pages.mjs';
 
 const KEY = 'best';
 const ITEMS = [
@@ -24,16 +20,9 @@ const ITEMS = [
 ];
 
 function loadUi() {
-  const created = [];
-  const { run } = loadPage(palautePath, {
-    patch(sandbox) {
-      const orig = sandbox.document.createElement;
-      sandbox.document.createElement = (tag) => {
-        const el = orig(tag);
-        created.push({ tag, el });
-        return el;
-      };
-    },
+  let created;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sandbox) { created = captureCreated(sandbox); },
   });
   return { run, created };
 }

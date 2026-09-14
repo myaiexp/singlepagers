@@ -5,12 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createDocument, recordingClassList } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { loadPage, stableElements, captureAlerts } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
+import { scorecardTotalling } from './yatzy-fixtures.mjs';
 
 function refuse() {
   const err = new Error('The quota has been exceeded.');
@@ -22,23 +19,12 @@ function refuse() {
 // (Firefox with storage disabled exposes window.localStorage as null), or
 // anything else for the stub's working in-memory store.
 function loadWith(storage, { confirm = false } = {}) {
-  const alerts = [];
-  const elements = new Map();
-  const { sandbox, run, loadError } = loadPage(yatzyPath, {
+  let alerts;
+  let elements;
+  const { sandbox, run, loadError } = loadPage(YATZY_PATH, {
     patch(sb) {
-      const doc = createDocument();
-      sb.document = {
-        ...doc,
-        getElementById(id) {
-          if (!elements.has(id)) {
-            const el = doc.getElementById(id);
-            el.classList = recordingClassList();
-            elements.set(id, el);
-          }
-          return elements.get(id);
-        },
-      };
-      sb.alert = (msg) => alerts.push(String(msg));
+      elements = stableElements(sb, { recordClasses: true });
+      alerts = captureAlerts(sb);
       sb.confirm = () => confirm;
       if (storage === 'refusing') {
         sb.localStorage.setItem = refuse;
@@ -49,14 +35,6 @@ function loadWith(storage, { confirm = false } = {}) {
     },
   });
   return { sandbox, run, loadError, alerts, elements };
-}
-
-function scorecardTotalling(lower) {
-  const row = (id, value) => ({ id, name: id, value });
-  return {
-    upper: ['ones', 'twos', 'threes', 'fours', 'fives', 'sixes'].map((id) => row(id, 0)),
-    lower: [row('chance', lower), row('yatzy', 0)],
-  };
 }
 
 for (const storage of ['refusing', 'null']) {
@@ -74,8 +52,8 @@ for (const storage of ['refusing', 'null']) {
 test('a refused stats write still shows the game-over overlay', () => {
   const { run, elements, alerts } = loadWith('refusing');
   run(`
-    player1Scores = ${JSON.stringify(scorecardTotalling(30))};
-    player2Scores = ${JSON.stringify(scorecardTotalling(20))};
+    player1Scores = ${JSON.stringify(scorecardTotalling(run, 0, 30))};
+    player2Scores = ${JSON.stringify(scorecardTotalling(run, 0, 20))};
     endGame();
   `);
   assert.equal(elements.get('gameOver').classList.contains('show'), true,
@@ -91,8 +69,8 @@ test('endGame shows the overlay before it records statistics', () => {
   const { sandbox, run, elements } = loadWith('working');
   sandbox.updateGameStatistics = () => { throw new Error('stats writer failed'); };
   assert.throws(() => run(`
-    player1Scores = ${JSON.stringify(scorecardTotalling(30))};
-    player2Scores = ${JSON.stringify(scorecardTotalling(20))};
+    player1Scores = ${JSON.stringify(scorecardTotalling(run, 0, 30))};
+    player2Scores = ${JSON.stringify(scorecardTotalling(run, 0, 20))};
     endGame();
   `), /stats writer failed/);
   assert.equal(elements.get('gameOver').classList.contains('show'), true);

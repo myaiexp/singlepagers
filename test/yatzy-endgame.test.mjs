@@ -5,46 +5,18 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createDocument, recordingClassList } from './dom-stub.mjs';
+import { loadPage, stableElements } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
+import { scorecardTotalling } from './yatzy-fixtures.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
-
-// Same identity-preserving getElementById as yatzy-bonus.test.mjs so
-// endGame's write to #winnerText (and #gameOver's class) is readable afterwards.
+// One element per id with a recording classList, so endGame's write to
+// #winnerText (and #gameOver's `show` class) is readable afterwards.
 function loadGame() {
-  const elements = new Map();
-  const { run, sandbox } = loadPage(yatzyPath, {
-    patch(sb) {
-      const doc = createDocument();
-      sb.document = {
-        ...doc,
-        getElementById(id) {
-          if (!elements.has(id)) {
-            const el = doc.getElementById(id);
-            el.classList = recordingClassList();
-            elements.set(id, el);
-          }
-          return elements.get(id);
-        },
-      };
-    },
+  let elements;
+  const { run, sandbox } = loadPage(YATZY_PATH, {
+    patch(sb) { elements = stableElements(sb, { recordClasses: true }); },
   });
   return { run, sandbox, elements };
-}
-
-// Upper section totals `upper`, lower `lower`. Rest of the rows are filled
-// with 0 so isGameOver-style completeness is irrelevant — endGame reads totals.
-function scorecardTotalling(upper, lower) {
-  const row = (id, value) => ({ id, name: id, value });
-  return {
-    upper: [row('ones', upper), row('twos', 0), row('threes', 0),
-      row('fours', 0), row('fives', 0), row('sixes', 0)],
-    lower: [row('threeOfAKind', lower), row('fourOfAKind', 0), row('fullHouse', 0),
-      row('smallStraight', 0), row('largeStraight', 0), row('yatzy', 0), row('chance', 0)],
-  };
 }
 
 function wld(stats) {
@@ -56,8 +28,8 @@ function playToEnd(p1Lower, p2Lower) {
   // upper=0 on both sides: no bonus, grand total === lower.
   game.run(
     `players = { player1: { id: 'seat-1', name: 'Alice' }, player2: { id: 'seat-2', name: 'Bob' } };
-     player1Scores = ${JSON.stringify(scorecardTotalling(0, p1Lower))};
-     player2Scores = ${JSON.stringify(scorecardTotalling(0, p2Lower))};
+     player1Scores = ${JSON.stringify(scorecardTotalling(game.run, 0, p1Lower))};
+     player2Scores = ${JSON.stringify(scorecardTotalling(game.run, 0, p2Lower))};
      currentGameRolls = { 1: 13, 2: 11 };
      endGame();`,
   );

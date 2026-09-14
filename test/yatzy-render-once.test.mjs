@@ -7,19 +7,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { YATZY_PATH } from './pages.mjs';
 
 // Load the page script with a synchronous setTimeout so rollDice()'s deferred callback
 // (where the dice settle and the scorecard renders) runs inline — the dom-stub's default
 // setTimeout is a no-op that would skip the roll body. init()'s opening roll therefore
 // also settles, so the test spies renderScorecard after that first roll has already run.
 function loadGame() {
-  const { sandbox } = loadPage(yatzyPath, {
+  const { sandbox } = loadPage(YATZY_PATH, {
     patch(s) {
       s.setTimeout = (fn) => { if (typeof fn === 'function') fn(); return 0; };
     },

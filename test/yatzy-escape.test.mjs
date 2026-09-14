@@ -2,46 +2,24 @@
 // names into renderStatistics and endGame via innerHTML. escapeHtml had no
 // test at all — reducing it to identity (`return String(s ?? '')`) passed
 // the full suite, so a name like <img src=x onerror=…> persisted in
-// localStorage would execute. Identity-preserving getElementById is the
-// same trick as test/yatzy-bonus.test.mjs so the write is readable after.
+// localStorage would execute. stableElements keeps one element per id so
+// the write is readable after.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createDocument } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { loadPage, stableElements } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
+import { scorecardTotalling } from './yatzy-fixtures.mjs';
 
 const IMG = '<img src=x onerror=alert(1)>';
 const ATTR = '" onmouseover=x';
 
 function loadGame() {
-  const elements = new Map();
-  const { run } = loadPage(yatzyPath, {
-    patch(sb) {
-      const doc = createDocument();
-      sb.document = {
-        ...doc,
-        getElementById(id) {
-          if (!elements.has(id)) elements.set(id, doc.getElementById(id));
-          return elements.get(id);
-        },
-      };
-    },
+  let elements;
+  const { run } = loadPage(YATZY_PATH, {
+    patch(sb) { elements = stableElements(sb); },
   });
   return { run, elements };
-}
-
-function scorecardTotalling(upper, lower) {
-  const row = (id, value) => ({ id, name: id, value });
-  return {
-    upper: [row('ones', upper), row('twos', 0), row('threes', 0),
-      row('fours', 0), row('fives', 0), row('sixes', 0)],
-    lower: [row('threeOfAKind', lower), row('fourOfAKind', 0), row('fullHouse', 0),
-      row('smallStraight', 0), row('largeStraight', 0), row('yatzy', 0), row('chance', 0)],
-  };
 }
 
 function assertEscaped(html, label) {
@@ -75,8 +53,8 @@ test('endGame escapes the winner name in #winnerText', () => {
       player1: { id: 'seat-xss', name: ${JSON.stringify(IMG)} },
       player2: { id: 'seat-2', name: 'Bob' },
     };
-    player1Scores = ${JSON.stringify(scorecardTotalling(63, 50))};
-    player2Scores = ${JSON.stringify(scorecardTotalling(0, 0))};
+    player1Scores = ${JSON.stringify(scorecardTotalling(game.run, 63, 50))};
+    player2Scores = ${JSON.stringify(scorecardTotalling(game.run, 0, 0))};
     currentGameRolls = { 1: 13, 2: 13 };
     endGame();
   `);

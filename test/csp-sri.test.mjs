@@ -9,13 +9,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { REPO_ROOT, PALAUTE_PATH, YATZY_PATH } from './pages.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const palauteHtml = readFileSync(join(here, '..', 'palaute.html'), 'utf8');
-const yatzyHtml = readFileSync(join(here, '..', 'yatzy.html'), 'utf8');
-const exceljsDoc = readFileSync(join(here, '..', 'docs', 'exceljs.md'), 'utf8');
+const palauteHtml = readFileSync(PALAUTE_PATH, 'utf8');
+const yatzyHtml = readFileSync(YATZY_PATH, 'utf8');
+const exceljsDoc = readFileSync(join(REPO_ROOT, 'docs', 'exceljs.md'), 'utf8');
 
 function cspContent(html, file) {
   const m = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)">/);

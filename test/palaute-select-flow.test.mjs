@@ -6,19 +6,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
+import { PALAUTE_PATH } from './pages.mjs';
 
 // Boot palaute with #entry replaced by a recorder: each innerHTML write starts a
 // new render generation; every child it hands out remembers its generation, and
 // every querySelectorAll list is kept by selector so tests can fire an onclick.
 function bootWithEntryRecorder() {
   const rec = { gen: 0, focused: [], lists: {} };
-  const { run } = loadPage(palautePath, {
+  const { run } = loadPage(PALAUTE_PATH, {
     patch(sandbox) {
       const doc = sandbox.document;
       const base = doc.createElement('div');

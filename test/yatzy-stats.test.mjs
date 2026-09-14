@@ -7,31 +7,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createDocument } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { loadPage, stableElements } from './dom-stub.mjs';
+import { YATZY_PATH } from './pages.mjs';
 
 // Fresh sandbox per test: empty localStorage, page script loaded. After load,
 // seat ids exist (initSeats ran during init); we then pin known names.
 //
-// getElementById is identity-preserving (same pattern as yatzy-bonus.test.mjs)
-// so applyPlayerNameEdit can read back the name inputs we just filled.
+// stableElements keeps one element per id so applyPlayerNameEdit can read back
+// the name inputs we just filled.
 function loadGame() {
-  const elements = new Map();
-  const { run } = loadPage(yatzyPath, {
-    patch(sb) {
-      const doc = createDocument();
-      sb.document = {
-        ...doc,
-        getElementById(id) {
-          if (!elements.has(id)) elements.set(id, doc.getElementById(id));
-          return elements.get(id);
-        },
-      };
-    },
+  const { run } = loadPage(YATZY_PATH, {
+    patch(sb) { stableElements(sb); },
   });
   // Pin known names on the seats init already created.
   run(

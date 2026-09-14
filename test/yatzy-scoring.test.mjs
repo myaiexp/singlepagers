@@ -11,16 +11,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { YATZY_PATH } from './pages.mjs';
 
 // One sandbox shared across tests: every helper fully sets the state its target
 // reads before calling, so there is no cross-test leakage.
-const { run } = loadPage(yatzyPath);
+const { run } = loadPage(YATZY_PATH);
 
 // Set diceValues, then score one category against the page's real calculateScore.
 function scoreOf(dice, categoryId) {

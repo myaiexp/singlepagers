@@ -10,17 +10,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { loadPage } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const yatzyPath = join(here, '..', 'yatzy.html');
+import { YATZY_PATH } from './pages.mjs';
 
 // Run the page's real <script> against the no-deps DOM stub, then return the
 // resulting localStorage. initSeats (and stats migration) runs in init().
 function simulateLoad(seed) {
-  const { sandbox } = loadPage(yatzyPath, { seed });
+  const { sandbox } = loadPage(YATZY_PATH, { seed });
   return sandbox.localStorage;
 }
 

@@ -4,17 +4,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { loadPage, createExcelJSStub } from './dom-stub.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const palautePath = join(here, '..', 'palaute.html');
+import { loadPage, createExcelJSStub, captureAlerts, captureCreated } from './dom-stub.mjs';
+import { PALAUTE_PATH } from './pages.mjs';
 
 function bootPalaute({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
   const downloads = [];
-  const alerts = [];
-  const { run } = loadPage(palautePath, {
+  let alerts;
+  const { run } = loadPage(PALAUTE_PATH, {
     patch(sandbox) {
       if (realTimers) {
         // Long timers (downloadBlob's deferred revoke) are unref'd so they do
@@ -27,7 +23,7 @@ function bootPalaute({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, real
         };
         sandbox.clearTimeout = clearTimeout;
       }
-      sandbox.alert = (msg) => { alerts.push(String(msg)); };
+      alerts = captureAlerts(sandbox);
       sandbox.Blob = function Blob(parts, opts) {
         this.parts = parts;
         this.type = opts?.type || '';
@@ -141,7 +137,7 @@ test('exportExcel with zero forms alerts and does not download', async () => {
 test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () => {
   const log = [];
   const timers = [];
-  const { run } = loadPage(palautePath, {
+  const { run } = loadPage(PALAUTE_PATH, {
     patch(sandbox) {
       sandbox.Blob = function Blob(parts, opts) { this.type = opts?.type || ''; };
       sandbox.URL = {
@@ -149,12 +145,9 @@ test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () 
         revokeObjectURL: (url) => log.push(`revoke ${url}`),
       };
       sandbox.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
-      const orig = sandbox.document.createElement;
-      sandbox.document.createElement = (tag) => {
-        const el = orig(tag);
+      captureCreated(sandbox, (el, tag) => {
         if (tag === 'a') el.click = () => log.push(`click ${el.download}`);
-        return el;
-      };
+      });
     },
   });
   run(`forms = ${JSON.stringify(FORMS)};`);
@@ -174,16 +167,9 @@ test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () 
 // `s.integrity = EXCELJS_SRI` still produces a working export (and a green
 // suite) while the page starts executing an unverified third-party script.
 test('loadExcelJS pins integrity and anonymous crossOrigin on the injected script', () => {
-  const created = [];
-  const { run } = loadPage(palautePath, {
-    patch(sandbox) {
-      const orig = sandbox.document.createElement;
-      sandbox.document.createElement = (tag) => {
-        const el = orig(tag);
-        created.push({ tag, el });
-        return el;
-      };
-    },
+  let created;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sandbox) { created = captureCreated(sandbox); },
   });
   run('loadExcelJS()');
   const script = created.find(c => c.tag === 'script');
