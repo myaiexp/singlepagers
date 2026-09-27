@@ -391,12 +391,14 @@ function raffleHTML() {
   return `<fieldset><legend>Arvonta <span class="hint">— vapaaehtoinen</span></legend>
     <div class="raffle">
       <div><label class="field-label" for="r-name">Nimi</label>
-        <input id="r-name" type="text" value="${escapeHtml(current.name)}"></div>
+        <input id="r-name" type="text" autocomplete="off" value="${escapeHtml(current.name)}"></div>
       <div><label class="field-label" for="r-phone">Puhelinnumero</label>
-        <input id="r-phone" type="text" value="${escapeHtml(current.phone)}"></div>
+        <input id="r-phone" type="text" autocomplete="off" value="${escapeHtml(current.phone)}"></div>
     </div>
     <p class="raffle-note">Yhteystiedot tallentuvat vain tähän selaimeen arvontaa varten.
-      Vie tiedot Exceliin ja tyhjennä lomakkeet (Tarkastele → Tyhjennä kaikki) tapahtuman jälkeen.</p>
+      Vie tiedot Exceliin ja tyhjennä lomakkeet (Tarkastele → Tyhjennä kaikki) tapahtuman jälkeen.
+      Tyhjennä kaikki ei poista selaimen automaattisen täytön muistamia tietoja — käytä
+      yksityistä ikkunaa tai tyhjennä selaimen tallennetut lomaketiedot tapahtuman jälkeen.</p>
   </fieldset>`;
 }
 

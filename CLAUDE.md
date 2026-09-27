@@ -54,7 +54,9 @@ unencrypted in localStorage (typically a shared venue device), and are written
 into both the `.xlsx` and the JSON fallback export. The page promises they stay
 in this browser for the raffle — nothing may transmit form data off-device (no
 upload, no sync). After the event: export, then Tarkastele → Tyhjennä kaikki
-(`clearAll`).
+(`clearAll`). The raffle inputs carry `autocomplete="off"`, and the note tells
+the operator that `clearAll` cannot reach the browser's autofill store (use a
+private window or clear saved form data).
 
 ## ExcelJS (`palaute.html`)
 
