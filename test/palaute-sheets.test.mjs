@@ -1,4 +1,4 @@
-// Excel-export integration tests (audit #1): drive palaute.html's real exportExcel()
+// Excel-export integration tests (audit #1): drive palaute.html's real exportForms()
 // through a RECORDING ExcelJS stub and read back what the workbook received —
 // sheet names, header-row contents, row counts, and computed averages — so a wiring
 // bug in the three sheet builders (Vastaukset / Yhteenveto / Avoimet teemat) fails
@@ -36,17 +36,17 @@ const FORMS = [
     free: { best: '', improve: '', topics: '', open: 'Kiitos' }, name: 'B', phone: '222' },
 ];
 
-// Run the real exportExcel() once and return the captured worksheets by name.
+// Run the real exportForms() once and return the captured worksheets by name.
 async function exportAndCapture() {
   run(`forms = ${JSON.stringify(FORMS)};`);
-  await run('exportExcel()');
+  await run('exportForms()');
   const wb = workbooks[workbooks.length - 1];
   const byName = {};
   wb.worksheets.forEach(ws => { byName[ws.name] = ws.rows; });
   return byName;
 }
 
-test('exportExcel builds exactly the three expected sheets, in order', async () => {
+test('exportForms builds exactly the three expected sheets, in order', async () => {
   const sheets = await exportAndCapture();
   assert.deepEqual(Object.keys(sheets), ['Vastaukset', 'Yhteenveto', 'Avoimet teemat']);
 });
@@ -55,7 +55,7 @@ test('Vastaukset header + one row per respondent, columns aligned to config', as
   const sheets = await exportAndCapture();
   const rows = sheets['Vastaukset'];
   const RATING = run('JSON.stringify(RATING_ITEMS)') && JSON.parse(run('JSON.stringify(RATING_ITEMS)'));
-  const FREETEXT_Q = JSON.parse(run('JSON.stringify(FREETEXT.map(f => f.q))'));
+  const FREETEXT_Q = JSON.parse(run('JSON.stringify(FREETEXT.map(f => f.question))'));
 
   // header: # | Osallistui | <7 ratings> | Suosittelisi | <4 free-text qs> | Nimi | Puhelinnumero
   const header = rows[0];

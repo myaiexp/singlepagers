@@ -70,10 +70,10 @@ test('Ctrl+Enter on the review view does not save', () => {
 
 test('a digit with no text field focused routes through the cursor', () => {
   const { run, key } = boot();
-  run('cursor = { sec: "att" }');
+  run('cursor = { section: "attendance" }');
   const ev = key('1');
-  assert.equal(run('current.attendance'), run('ATTENDANCE[0].v'));
-  assert.equal(run('cursor.sec'), 'rating');
+  assert.equal(run('current.attendance'), run('ATTENDANCE[0].value'));
+  assert.equal(run('cursor.section'), 'rating');
   assert.equal(run('cursor.row'), 0);
   assert.equal(ev.defaultPrevented, true);
   key('4');
@@ -83,28 +83,28 @@ test('a digit with no text field focused routes through the cursor', () => {
 for (const tagName of ['INPUT', 'TEXTAREA']) {
   test(`digits typed into a focused ${tagName} leave ratings and cursor alone`, () => {
     const { run, key, focusOn } = boot();
-    run('cursor = { sec: "rating", row: 0 }');
+    run('cursor = { section: "rating", row: 0 }');
     focusOn(tagName);
     for (const ch of '0401234555') {
       assert.equal(key(ch).defaultPrevented, false, `key ${ch} must reach the field`);
     }
     assert.equal(ratings(run), NO_RATINGS);
-    assert.equal(run('JSON.stringify(cursor)'), '{"sec":"rating","row":0}');
+    assert.equal(run('JSON.stringify(cursor)'), '{"section":"rating","row":0}');
   });
 }
 
 test('digits on the review view do not move the cursor', () => {
   const { run, key } = boot();
-  run('showReview(); cursor = { sec: "att" };');
+  run('showReview(); cursor = { section: "attendance" };');
   const ev = key('1');
   assert.equal(run('current.attendance'), null);
-  assert.equal(run('cursor.sec'), 'att');
+  assert.equal(run('cursor.section'), 'attendance');
   assert.equal(ev.defaultPrevented, false);
 });
 
 test('keys outside 0-5 are not routed', () => {
   const { run, key } = boot();
-  run('cursor = { sec: "rating", row: 0 }');
+  run('cursor = { section: "rating", row: 0 }');
   for (const k of ['6', '9', 'a', 'Tab']) assert.equal(key(k).defaultPrevented, false);
   assert.equal(ratings(run), NO_RATINGS);
 });
@@ -130,7 +130,7 @@ test('a free-text field writes current.free on input and releases the cursor on 
   const { run, entry } = boot();
   const k = run('FREETEXT[0].key');
   const ta = entry.querySelector(`#ft-${k}`);
-  run('cursor = { sec: "att" }');
+  run('cursor = { section: "attendance" }');
   dispatch(ta, 'focus');
   assert.equal(run('cursor'), null);
   ta.value = 'Hyvät puhujat';
@@ -161,9 +161,9 @@ test('a free-text field forwards keydown to its suggestions and closes them on b
 test('attendance, rating and recommend buttons pick through their onclick', () => {
   const { run, entry } = boot();
   const att = entry.querySelectorAll('.att')[1];
-  att.dataset.v = run('ATTENDANCE[1].v');
+  att.dataset.value = run('ATTENDANCE[1].value');
   att.onclick();
-  assert.equal(run('current.attendance'), run('ATTENDANCE[1].v'));
+  assert.equal(run('current.attendance'), run('ATTENDANCE[1].value'));
 
   const cell = entry.querySelectorAll('.gcell[data-row]')[0];
   Object.assign(cell.dataset, { row: '2', val: '4' });
@@ -172,9 +172,9 @@ test('attendance, rating and recommend buttons pick through their onclick', () =
   assert.equal(run('cursor.row'), 3);
 
   const rec = entry.querySelectorAll('.rec')[0];
-  rec.dataset.v = run('RECOMMEND[0].v');
+  rec.dataset.value = run('RECOMMEND[0].value');
   rec.onclick();
-  assert.equal(run('current.recommend'), run('RECOMMEND[0].v'));
+  assert.equal(run('current.recommend'), run('RECOMMEND[0].value'));
 });
 
 test('the save button is wired to saveForm', () => {

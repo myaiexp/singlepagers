@@ -1,7 +1,7 @@
 // Keyboard-cursor tests (audit #1379): prove palaute.html's entry cursor keeps the
 // rating-row index as a genuine number throughout, never a string re-parsed from a
 // sentinel like "r0". The cursor is the tagged union
-//   { sec:"att" } | { sec:"rating", row:<0..6 number> } | { sec:"rec" } | null
+//   { section:"attendance" } | { section:"rating", row:<0..6 number> } | { section:"recommend" } | null
 //
 // Same no-deps approach as palaute-labels.test.mjs: loadPage runs the page's
 // real <script> under node:vm against the stub DOM with ZERO changes to
@@ -14,7 +14,7 @@ import { loadPage } from './dom-stub.mjs';
 import { PALAUTE_PATH } from './pages.mjs';
 
 const { run } = loadPage(PALAUTE_PATH);
-const reset = () => run('current = blankForm(); cursor = { sec: "att" };');
+const reset = () => run('current = blankForm(); cursor = { section: "attendance" };');
 
 // --- The index is numeric at every step, not a parsed string -----------------
 
@@ -22,7 +22,7 @@ test('routeNumberKey moves att -> rating(row 0) with a numeric row', () => {
   reset();
   run('routeNumberKey(1)'); // choose first attendance option
   assert.equal(run('current.attendance'), 'both');
-  assert.equal(run('cursor.sec'), 'rating');
+  assert.equal(run('cursor.section'), 'rating');
   assert.equal(run('cursor.row'), 0);
   assert.equal(run('typeof cursor.row'), 'number');
 });
@@ -40,7 +40,7 @@ test('rating cursor advances by a numeric +1, never a "r"+n string', () => {
 
 test('setRating writes to the numeric row index and lands the value', () => {
   reset();
-  run('cursor = { sec: "rating", row: 3 };');
+  run('cursor = { section: "rating", row: 3 };');
   run('setRating(3, 4)');
   assert.equal(run('current.ratings[3]'), 4);
   assert.equal(run('cursor.row'), 4); // advanced to next row
@@ -50,10 +50,10 @@ test('setRating writes to the numeric row index and lands the value', () => {
 test('setRating on the last row hands off to recommend (no row carried)', () => {
   reset();
   const last = run('RATING_ITEMS.length - 1'); // 6
-  run(`cursor = { sec: "rating", row: ${last} };`);
+  run(`cursor = { section: "rating", row: ${last} };`);
   run(`setRating(${last}, 5)`);
   assert.equal(run(`current.ratings[${last}]`), 5);
-  assert.equal(run('cursor.sec'), 'rec');
+  assert.equal(run('cursor.section'), 'recommend');
   assert.equal(run('cursor.row'), undefined);
 });
 
@@ -68,7 +68,7 @@ test('a full number-key run lands every value in the right numeric slot', () => 
     run(`routeNumberKey(${n})`);
     // The cursor never holds a string-encoded row at any point in the walk.
     assert.equal(run('cursor == null || typeof cursor.row !== "string"'), true);
-    if (run('cursor && cursor.sec === "rating"')) {
+    if (run('cursor && cursor.section === "rating"')) {
       assert.equal(run('typeof cursor.row'), 'number');
     }
   });
@@ -84,5 +84,5 @@ test('number key 0 on attendance is ignored (out of 1..3 range)', () => {
   reset();
   run('routeNumberKey(0)');
   assert.equal(run('current.attendance'), null);
-  assert.equal(run('cursor.sec'), 'att'); // stays put
+  assert.equal(run('cursor.section'), 'attendance'); // stays put
 });

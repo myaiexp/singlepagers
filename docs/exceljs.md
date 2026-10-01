@@ -1,13 +1,13 @@
 # ExcelJS in palaute.html
 
 `palaute.html` is the one file with an optional external dependency. It loads
-ExcelJS 4.4.0 from cdnjs **on demand** (inside `exportExcel()`, not at page load)
+ExcelJS 4.4.0 from cdnjs **on demand** (inside `exportForms()`, not at page load)
 to generate the preferred `.xlsx` export, pinned by a Subresource Integrity (SRI)
 hash so a tampered CDN payload is rejected. The page itself boots and does all
 data entry with **no** network dependency.
 
 Constants live next to the loader in `palaute.html`: `EXCELJS_URL`, `EXCELJS_SRI`,
-`EXCELJS_LOAD_TIMEOUT_MS` (8000). `loadExcelJS()` injects a `<script>` with those
+`excelJsLoadTimeoutMs` (8000). `loadExcelJS()` injects a `<script>` with those
 values; `fail()` (timeout or `onerror`) drops the cached promise so a later retry
 injects a fresh tag.
 

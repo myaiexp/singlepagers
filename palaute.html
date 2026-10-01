@@ -176,9 +176,9 @@ const STORAGE_KEY = "palaute_huippu2026_v1";
 const STORAGE_RECOVERY_KEY = STORAGE_KEY + "_recovery";
 
 const ATTENDANCE = [
-  { v: "both", label: "Molemmat päivät" },
-  { v: "thu",  label: "Torstai" },
-  { v: "fri",  label: "Perjantai" },
+  { value: "both", label: "Molemmat päivät" },
+  { value: "thu",  label: "Torstai" },
+  { value: "fri",  label: "Perjantai" },
 ];
 const RATING_ITEMS = [
   "Tapahtuman kokonaisuus",
@@ -191,16 +191,15 @@ const RATING_ITEMS = [
 ];
 const SCALE = "1 = heikko · 2 = välttävä · 3 = hyvä · 4 = erittäin hyvä · 5 = erinomainen";
 const RECOMMEND = [
-  { v: "kylla", label: "Kyllä" },
-  { v: "ehka",  label: "Ehkä" },
-  { v: "en",    label: "En" },
+  { value: "kylla", label: "Kyllä" },
+  { value: "ehka",  label: "Ehkä" },
+  { value: "en",    label: "En" },
 ];
-// key = storage key, q = question text on the form
 const FREETEXT = [
-  { key: "best",    q: "Mikä oli päivien parasta antia?" },
-  { key: "improve", q: "Missä oli mielestäsi kehitettävää?" },
-  { key: "topics",  q: "Mitä aiheita toivoisit tuleviin koulutuspäiviin?" },
-  { key: "open",    q: "Vapaa palaute tai kehitysidea" },
+  { key: "best",    question: "Mikä oli päivien parasta antia?" },
+  { key: "improve", question: "Missä oli mielestäsi kehitettävää?" },
+  { key: "topics",  question: "Mitä aiheita toivoisit tuleviin koulutuspäiviin?" },
+  { key: "open",    question: "Vapaa palaute tai kehitysidea" },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -210,7 +209,7 @@ let storageUnreadable = false; // true when STORAGE_KEY exists but would not par
 let forms = load();        // array of saved form objects
 let current = blankForm(); // form being entered/edited
 let editingId = null;      // id of form being edited, or null for a new one
-let cursor = { sec: "att" }; // keyboard cursor: {sec:"att"} | {sec:"rating",row:0..6} | {sec:"rec"} | null
+let cursor = { section: "attendance" }; // keyboard cursor; null once entry moves to the text fields
 
 function blankForm() {
   return {
@@ -345,7 +344,7 @@ function renderEntry() {
 
 function attendanceHTML() {
   const opts = ATTENDANCE.map((a, i) => `
-    <button class="choice att ${current.attendance === a.v ? "sel" : ""}" data-v="${a.v}">
+    <button class="choice att ${current.attendance === a.value ? "sel" : ""}" data-value="${a.value}">
       <span class="key">${i + 1}</span>${a.label}</button>`).join("");
   return `<fieldset><legend>Osallistuin</legend><div class="choices">${opts}</div></fieldset>`;
 }
@@ -360,7 +359,7 @@ function ratingHTML() {
       `<div class="gcell ${current.ratings[r] === n ? "on" : ""}" data-row="${r}" data-val="${n}">${current.ratings[r] === n ? n : ""}</div>`
     ).join("");
     const skip = `<div class="gcell skip" data-row="${r}" data-val="0" title="Ohita">–</div>`;
-    rows += `<div class="grid-row" data-rrow="${r}"><div class="glabel">${label}</div>${cells}${skip}</div>`;
+    rows += `<div class="grid-row" data-rating-row="${r}"><div class="glabel">${label}</div>${cells}${skip}</div>`;
   });
   return `<fieldset>
     <legend>Arviointi <span class="hint">— näppäimet 1–5, 0 ohittaa</span></legend>
@@ -371,7 +370,7 @@ function ratingHTML() {
 
 function recommendHTML() {
   const opts = RECOMMEND.map((r, i) => `
-    <button class="choice rec ${current.recommend === r.v ? "sel" : ""}" data-v="${r.v}">
+    <button class="choice rec ${current.recommend === r.value ? "sel" : ""}" data-value="${r.value}">
       <span class="key">${i + 1}</span>${r.label}</button>`).join("");
   return `<fieldset><legend>Suosittelisitko koulutuspäiviä kollegalle?</legend>
     <div class="choices">${opts}</div></fieldset>`;
@@ -381,7 +380,7 @@ function freetextHTML() {
   return `<fieldset><legend>Avoimet vastaukset <span class="hint">— ehdotukset auttavat ryhmittelyssä</span></legend>` +
     FREETEXT.map(ft => `
       <div class="ftblock" data-ftkey="${ft.key}">
-        <label class="field-label" for="ft-${ft.key}">${ft.q}</label>
+        <label class="field-label" for="ft-${ft.key}">${ft.question}</label>
         <textarea id="ft-${ft.key}" data-ftkey="${ft.key}" rows="2">${escapeHtml(current.free[ft.key])}</textarea>
       </div>`).join("") +
     `</fieldset>`;
@@ -423,13 +422,13 @@ function escapeHtml(s) {
  * ------------------------------------------------------------------ */
 function bindEntry() {
   entryEl.querySelectorAll(".att").forEach(b =>
-    b.onclick = () => selectAttendance(b.dataset.v));
+    b.onclick = () => selectAttendance(b.dataset.value));
 
   entryEl.querySelectorAll(".gcell[data-row]").forEach(c =>
     c.onclick = () => setRating(+c.dataset.row, +c.dataset.val));
 
   entryEl.querySelectorAll(".rec").forEach(b =>
-    b.onclick = () => selectRecommend(b.dataset.v));
+    b.onclick = () => selectRecommend(b.dataset.value));
 
   FREETEXT.forEach(ft => {
     const ta = entryEl.querySelector(`#ft-${ft.key}`);
@@ -451,13 +450,13 @@ function bindEntry() {
 // so the cursor hand-off cannot drift between the two paths.
 function selectAttendance(v) {
   current.attendance = v;
-  cursor = { sec: "rating", row: 0 };
+  cursor = { section: "rating", row: 0 };
   renderEntry();
 }
 
 function setRating(row, val) {
   current.ratings[row] = val === 0 ? null : val;
-  cursor = row < RATING_ITEMS.length - 1 ? { sec: "rating", row: row + 1 } : { sec: "rec" };
+  cursor = row < RATING_ITEMS.length - 1 ? { section: "rating", row: row + 1 } : { section: "recommend" };
   renderEntry();
 }
 
@@ -473,12 +472,12 @@ function selectRecommend(v) {
 function refreshCursor() {
   entryEl.querySelectorAll(".grid-row").forEach(r => r.classList.remove("cursor"));
   entryEl.querySelectorAll(".att, .rec").forEach(b => b.style.outline = "");
-  if (cursor?.sec === "att") {
+  if (cursor?.section === "attendance") {
     entryEl.querySelectorAll(".att").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
-  } else if (cursor?.sec === "rating") {
-    const el = entryEl.querySelector(`.grid-row[data-rrow="${cursor.row}"]`);
+  } else if (cursor?.section === "rating") {
+    const el = entryEl.querySelector(`.grid-row[data-rating-row="${cursor.row}"]`);
     if (el) el.classList.add("cursor");
-  } else if (cursor?.sec === "rec") {
+  } else if (cursor?.section === "recommend") {
     entryEl.querySelectorAll(".rec").forEach(b => b.style.outline = "2px solid var(--accent-tint)");
   }
 }
@@ -543,14 +542,16 @@ function suggestKeydown(e, key, ta) {
 function saveForm() {
   if (editingId !== null) {
     const idx = forms.findIndex(f => f.id === editingId);
+    const saved = cloneForm(current);
+    saved.id = editingId;
     if (idx !== -1) {
-      const saved = cloneForm(current);
-      saved.id = editingId;
       forms[idx] = saved;
+    } else {
+      // The row went away mid-edit; keep the typed work rather than drop it.
+      forms.push(saved);
+      alert("Muokattava lomake oli poistettu. Muutokset tallennettiin uutena lomakkeena.");
     }
-    editingId = null;
-    current = blankForm();
-    cursor = { sec: "att" }; // reset so the next blank entry starts on attendance
+    resetEntry(); // the next blank entry starts on attendance
     persist();
     showReview();
     return;
@@ -561,16 +562,24 @@ function saveForm() {
     : Date.now() + "-" + Math.random().toString(36).slice(2, 7);
   forms.push(saved);
   persist();
-  current = blankForm();
-  cursor = { sec: "att" };
+  resetEntry();
   renderEntry();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function cancelEdit() {
+function resetEntry() {
   editingId = null;
   current = blankForm();
-  cursor = { sec: "att" };
+  cursor = { section: "attendance" };
+}
+function cancelEdit() {
+  resetEntry();
   showReview();
+}
+// True when `current` holds typing that a reset would lose: a new entry that
+// differs from a blank form, or an edit that differs from its saved row.
+function hasUnsavedEntry() {
+  const base = editingId !== null && forms.find(f => f.id === editingId);
+  return JSON.stringify(current) !== JSON.stringify(base || blankForm());
 }
 
 /* ------------------------------------------------------------------ *
@@ -614,21 +623,29 @@ function renderReview() {
 function editForm(id) {
   const f = forms.find(x => x.id === id);
   if (!f) return;
-  current = cloneForm(f);
-  editingId = id;
-  cursor = { sec: "att" };
+  if (id !== editingId) {
+    if (hasUnsavedEntry() && !confirm("Syötössä on tallentamattomia muutoksia. " +
+        "Hylätäänkö ne ja avataan tämä lomake muokattavaksi?")) return;
+    current = cloneForm(f);
+    editingId = id;
+    cursor = { section: "attendance" };
+  }
   showEntry();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function deleteForm(id) {
   if (!confirm("Poistetaanko tämä lomake?")) return;
   forms = forms.filter(f => f.id !== id);
+  if (id === editingId) resetEntry();
   persist();
   renderReview();
 }
 function clearAll() {
   if (!confirm("Poistetaanko KAIKKI " + forms.length + " lomaketta? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
   forms = [];
+  // The entry in progress goes too: an edit has lost its row, and a new entry
+  // may hold raffle contacts the post-event wipe is meant to remove.
+  resetEntry();
   // "ALL" includes a recovery copy left by an unreadable blob; leaving it
   // would let load() read the diverted rows back on the next boot. Wiping
   // both keys also makes the store readable again, so persist writes to
@@ -679,20 +696,20 @@ document.addEventListener("keydown", e => {
 });
 
 function routeNumberKey(n) {
-  if (cursor?.sec === "att") {
-    if (n >= 1 && n <= ATTENDANCE.length) selectAttendance(ATTENDANCE[n - 1].v);
-  } else if (cursor?.sec === "rating") {
+  if (cursor?.section === "attendance") {
+    if (n >= 1 && n <= ATTENDANCE.length) selectAttendance(ATTENDANCE[n - 1].value);
+  } else if (cursor?.section === "rating") {
     setRating(cursor.row, n); // n=0 skips
-  } else if (cursor?.sec === "rec") {
-    if (n >= 1 && n <= RECOMMEND.length) selectRecommend(RECOMMEND[n - 1].v);
+  } else if (cursor?.section === "recommend") {
+    if (n >= 1 && n <= RECOMMEND.length) selectRecommend(RECOMMEND[n - 1].value);
   }
 }
 
 /* ------------------------------------------------------------------ *
  * Export — Excel (.xlsx via ExcelJS) with offline JSON fallback
  * ------------------------------------------------------------------ */
-// Shared value→label lookup for the {v,label} config arrays; "" when not found.
-const labelFor = (arr, v) => (arr.find(x => x.v === v) || {}).label || "";
+// Shared value→label lookup for the {value,label} config arrays; "" when not found.
+const labelFor = (arr, v) => (arr.find(x => x.value === v) || {}).label || "";
 function attLabel(v) { return labelFor(ATTENDANCE, v); }
 function recLabel(v) { return labelFor(RECOMMEND, v); }
 
@@ -702,7 +719,7 @@ function recLabel(v) { return labelFor(RECOMMEND, v); }
 const EXCELJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
 const EXCELJS_SRI = "sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw==";
 let excelJsLoad = null;
-let EXCELJS_LOAD_TIMEOUT_MS = 8000;
+let excelJsLoadTimeoutMs = 8000;
 function loadExcelJS() {
   if (typeof ExcelJS !== "undefined") return Promise.resolve();
   if (excelJsLoad) return excelJsLoad;
@@ -719,7 +736,7 @@ function loadExcelJS() {
       excelJsLoad = null;
       reject(err);
     };
-    timer = setTimeout(() => fail(new Error("ExcelJS load timed out")), EXCELJS_LOAD_TIMEOUT_MS);
+    timer = setTimeout(() => fail(new Error("ExcelJS load timed out")), excelJsLoadTimeoutMs);
     s.onload = () => { clearTimeout(timer); resolve(); };
     s.onerror = () => fail(new Error("ExcelJS load failed"));
     document.head.appendChild(s);
@@ -763,7 +780,7 @@ async function exportXlsx() {
 
 // Prefer .xlsx when ExcelJS is reachable; never fail closed offline — fall back
 // to JSON with the same three sheets so the venue can still extract all data.
-async function exportExcel() {
+async function exportForms() {
   if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
   try {
     await loadExcelJS();
@@ -806,7 +823,7 @@ function styleSectionRow(ws, rowNum, cols) {
     fillCell(cell, XL.tealTint);
   }
 }
-function bordersFor(ws, r1, r2, c1, c2) {
+function applyBorders(ws, r1, r2, c1, c2) {
   for (let r = r1; r <= r2; r++)
     for (let c = c1; c <= c2; c++) ws.getRow(r).getCell(c).border = XL.allBorders;
 }
@@ -858,7 +875,7 @@ function makeRowBuilder() {
 // Sheet 1: raw rows, one per respondent
 function sheetResponses() {
   const header = ["#", "Osallistui", ...RATING_ITEMS, "Suosittelisi",
-    ...FREETEXT.map(f => f.q), "Nimi", "Puhelinnumero"];
+    ...FREETEXT.map(f => f.question), "Nimi", "Puhelinnumero"];
   const dataRows = forms.map((f, i) => [
     i + 1, attLabel(f.attendance),
     ...f.ratings.map(r => r == null ? "" : r),
@@ -877,7 +894,7 @@ function sheetResponses() {
   const style = (ws) => {
     ws.views = [{ state: "frozen", ySplit: 1 }];
     styleHeaderRow(ws, 1, cols);
-    bordersFor(ws, 1, rows.length, 1, cols);
+    applyBorders(ws, 1, rows.length, 1, cols);
     for (let r = 2; r <= rows.length; r++) {
       if (r % 2 === 1) for (let c = 1; c <= cols; c++) fillCell(ws.getRow(r).getCell(c), XL.zebra);
     }
@@ -893,7 +910,7 @@ function sheetSummary() {
   const subRow = rb.addRow([`Vastauksia yhteensä: ${forms.length}`]);
   rb.addRow([]);
   const attendanceRow = rb.addRow(["Osallistuminen", "kpl"]);
-  ATTENDANCE.forEach(a => rb.addRow([a.label, forms.filter(f => f.attendance === a.v).length]));
+  ATTENDANCE.forEach(a => rb.addRow([a.label, forms.filter(f => f.attendance === a.value).length]));
   rb.addRow([]);
   const ratingHeaderRow = rb.addRow(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
   const ratingFirstRow = rb.count + 1;
@@ -906,7 +923,7 @@ function sheetSummary() {
   const ratingLastRow = rb.count;
   rb.addRow([]);
   const recommendRow = rb.addRow(["Suosittelisi kollegalle", "kpl"]);
-  RECOMMEND.forEach(rc => rb.addRow([rc.label, forms.filter(f => f.recommend === rc.v).length]));
+  RECOMMEND.forEach(rc => rb.addRow([rc.label, forms.filter(f => f.recommend === rc.value).length]));
 
   const style = (ws) => {
     ws.getCell(titleRow, 1).font = { bold: true, size: 14, color: { argb: XL.tealDark } };
@@ -914,7 +931,7 @@ function sheetSummary() {
     styleSectionRow(ws, attendanceRow, 2);
     styleSectionRow(ws, recommendRow, 2);
     styleHeaderRow(ws, ratingHeaderRow, 8);
-    bordersFor(ws, ratingHeaderRow, ratingLastRow, 1, 8);
+    applyBorders(ws, ratingHeaderRow, ratingLastRow, 1, 8);
     centerCells(ws, ratingFirstRow, ratingLastRow, [2, 3, 4, 5, 6, 7, 8]);
     for (let rr = ratingFirstRow; rr <= ratingLastRow; rr++) ws.getCell(rr, 8).numFmt = "0.0";
     // Red→amber→green colour scale on the average column only
@@ -937,7 +954,7 @@ function sheetThemes() {
   rb.addRow([]);
   const blocks = [];
   FREETEXT.forEach(ft => {
-    const headerRow = rb.addRow([ft.q, "kpl"]);
+    const headerRow = rb.addRow([ft.question, "kpl"]);
     const groups = distinctAnswers(ft.key);
     if (!groups.length) rb.addRow(["(ei vastauksia)", ""]);
     else groups.forEach(g => rb.addRow([g.text, g.count]));
@@ -950,13 +967,13 @@ function sheetThemes() {
     ws.getColumn(2).alignment = { horizontal: "center", vertical: "top" };
     blocks.forEach(blk => {
       styleSectionRow(ws, blk.headerRow, 2);
-      bordersFor(ws, blk.headerRow, blk.last, 1, 2);
+      applyBorders(ws, blk.headerRow, blk.last, 1, 2);
     });
   };
   return { rows: rb.rows, widths: [60, 8], style };
 }
 
-document.getElementById("exportBtn").onclick = exportExcel;
+document.getElementById("exportBtn").onclick = exportForms;
 
 /* ------------------------------------------------------------------ *
  * Boot

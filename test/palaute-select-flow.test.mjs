@@ -47,7 +47,7 @@ function bootWithEntryRecorder() {
       doc.getElementById = (id) => (id === 'entry' ? entry : orig(id));
     },
   });
-  run('current = blankForm(); cursor = { sec: "att" }; renderEntry();');
+  run('current = blankForm(); cursor = { section: "attendance" }; renderEntry();');
   return { run, rec };
 }
 
@@ -67,7 +67,7 @@ function boundButton(rec, sel) {
 
 test('keyboard recommend focuses the first textarea of the render it leaves behind', () => {
   const { run, rec } = bootWithEntryRecorder();
-  run('cursor = { sec: "rec" }; routeNumberKey(1);');
+  run('cursor = { section: "recommend" }; routeNumberKey(1);');
   assert.equal(run('current.recommend'), 'kylla');
   assert.equal(run('cursor'), null, 'recommend releases the cursor to free text');
   const f = lastFocus(rec);
@@ -79,7 +79,7 @@ test('keyboard recommend focuses the first textarea of the render it leaves behi
 test('clicking a recommend button takes the same hand-off as the keyboard', () => {
   const { run, rec } = bootWithEntryRecorder();
   const btn = boundButton(rec, '.rec');
-  btn.dataset.v = 'ehka';
+  btn.dataset.value = 'ehka';
   btn.onclick();
   assert.equal(run('current.recommend'), 'ehka');
   assert.equal(run('cursor'), null);
@@ -93,10 +93,10 @@ test('clicking an attendance button moves the cursor to rating row 0 and re-rend
   const { run, rec } = bootWithEntryRecorder();
   const before = rec.gen;
   const btn = boundButton(rec, '.att');
-  btn.dataset.v = 'thu';
+  btn.dataset.value = 'thu';
   btn.onclick();
   assert.equal(run('current.attendance'), 'thu');
-  assert.equal(run('cursor.sec'), 'rating');
+  assert.equal(run('cursor.section'), 'rating');
   assert.equal(run('cursor.row'), 0);
   assert.ok(rec.gen > before, 'the pick re-renders the entry view');
 });

@@ -1,4 +1,4 @@
-// Offline export fallback (audit #1375): when ExcelJS cannot load, exportExcel()
+// Offline export fallback (audit #1375): when ExcelJS cannot load, exportForms()
 // must still deliver the three sheets as JSON via exportJsonFallback — never
 // fail closed with only an alert. Same no-deps harness as palaute-sheets.test.mjs.
 
@@ -56,10 +56,10 @@ const FORMS = [
     free: { best: 'Hyvä', improve: '', topics: '', open: '' }, name: 'A', phone: '111' },
 ];
 
-test('exportExcel falls back to JSON with three sheets when ExcelJS is unavailable', async () => {
+test('exportForms falls back to JSON with three sheets when ExcelJS is unavailable', async () => {
   const { run, downloads, alerts } = bootPalaute({ withExcelJS: false });
   run(`forms = ${JSON.stringify(FORMS)};`);
-  await run('exportExcel()');
+  await run('exportForms()');
 
   assert.equal(downloads.length, 1, 'exactly one download');
   const dl = downloads[0];
@@ -88,7 +88,7 @@ test('exportJsonFallback alone produces the same three-sheet payload', () => {
 
 test('loadExcelJS times out, clears the cached promise, and lets a retry start fresh', async () => {
   const { run } = bootPalaute({ stubLoadExcelJS: false, realTimers: true });
-  run('EXCELJS_LOAD_TIMEOUT_MS = 40');
+  run('excelJsLoadTimeoutMs = 40');
   const first = run('loadExcelJS()');
   await assert.rejects(first, /timed out/i);
   assert.equal(run('excelJsLoad'), null, 'cached promise must be cleared so a retry can inject a fresh script');
@@ -97,20 +97,20 @@ test('loadExcelJS times out, clears the cached promise, and lets a retry start f
   await assert.rejects(second, /timed out/i);
 }, { timeout: 2000 });
 
-test('exportExcel falls back to JSON when the ExcelJS script hangs past the timeout', async () => {
+test('exportForms falls back to JSON when the ExcelJS script hangs past the timeout', async () => {
   const { run, downloads, alerts } = bootPalaute({ stubLoadExcelJS: false, realTimers: true });
-  run('EXCELJS_LOAD_TIMEOUT_MS = 40');
+  run('excelJsLoadTimeoutMs = 40');
   run(`forms = ${JSON.stringify(FORMS)};`);
-  await run('exportExcel()');
+  await run('exportForms()');
   assert.equal(downloads.length, 1);
   assert.match(downloads[0].type, /json/i);
   assert.ok(alerts.some(a => /JSON/i.test(a)));
 }, { timeout: 2000 });
 
-test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
+test('exportForms still prefers xlsx when ExcelJS is present', async () => {
   const { run, downloads, alerts } = bootPalaute({ withExcelJS: true });
   run(`forms = ${JSON.stringify(FORMS)};`);
-  await run('exportExcel()');
+  await run('exportForms()');
   assert.equal(downloads.length, 1);
   // xlsx path uses ArrayBuffer → non-json mime
   assert.doesNotMatch(downloads[0].type || '', /json/i);
@@ -120,10 +120,10 @@ test('exportExcel still prefers xlsx when ExcelJS is present', async () => {
 // The empty-store guard is the only thing standing between "nothing to export"
 // and a download of an empty workbook. Removing `if (!forms.length)` used to
 // pass the suite.
-test('exportExcel with zero forms alerts and does not download', async () => {
+test('exportForms with zero forms alerts and does not download', async () => {
   const { run, downloads, alerts } = bootPalaute({ withExcelJS: true });
   run('forms = [];');
-  await run('exportExcel()');
+  await run('exportForms()');
   assert.equal(downloads.length, 0, 'no workbook download for an empty store');
   assert.ok(
     alerts.some(a => a.includes('Ei vielä tallennettuja lomakkeita')),

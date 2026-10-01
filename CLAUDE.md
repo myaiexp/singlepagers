@@ -61,7 +61,7 @@ private window or clear saved form data).
 ## ExcelJS (`palaute.html`)
 
 One optional CDN dependency: ExcelJS 4.4.0, SRI-pinned, loaded inside
-`exportExcel()` (not at page load). Offline / CDN down / 8s hang falls back to
+`exportForms()` (not at page load). Offline / CDN down / 8s hang falls back to
 JSON via `exportJsonFallback()`. Version bumps, SRI regeneration, and CVE
 monitoring: [`docs/exceljs.md`](docs/exceljs.md).
 
