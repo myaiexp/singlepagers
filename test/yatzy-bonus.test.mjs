@@ -40,7 +40,7 @@ test('bonusFor awards 50 from 63 upward and nothing below', () => {
 // Pull the bonus row's value out of the rendered scorecard HTML.
 function renderedBonus(game, upper, lower) {
   game.run(`player1Scores = ${JSON.stringify(scorecardTotalling(game.run, upper, lower))};
-            currentPlayer = 2; hasRolled = false;
+            currentSeatNo = 2; hasRolled = false;
             renderScorecard(1, false);`);
   const html = game.elements.get('scorecardBody1').innerHTML;
   const m = html.match(/bonus-row[\s\S]*?score-value">(\d+)</);

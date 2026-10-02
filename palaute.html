@@ -205,7 +205,7 @@ const FREETEXT = [
 /* ------------------------------------------------------------------ *
  * State
  * ------------------------------------------------------------------ */
-let storageUnreadable = false; // true when STORAGE_KEY exists but would not parse
+let storageUnreadable = false; // true when STORAGE_KEY holds a blob load() could not use
 let forms = load();        // array of saved form objects
 let current = blankForm(); // form being entered/edited
 let editingId = null;      // id of form being edited, or null for a new one
@@ -226,34 +226,35 @@ function cloneForm(f) {
   return JSON.parse(JSON.stringify(f));
 }
 
-function load() {
+// Read one key as { status, value }: 'absent' (nothing stored, or storage
+// unreachable), 'corrupt' (stored but not JSON, or JSON that is not an array)
+// or 'ok'. `value` is the saved forms, or [] for absent and corrupt.
+function readFormsKey(key) {
   let raw;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(key);
   } catch (e) {
-    return [];
+    return { status: "absent", value: [] };
   }
-  if (!raw) return [];
+  if (!raw) return { status: "absent", value: [] };
+  let data;
   try {
-    const data = JSON.parse(raw);
-    if (!Array.isArray(data)) throw new Error("palaute store is not an array");
-    return data;
+    data = JSON.parse(raw);
   } catch (e) {
-    // Parse failure: keep the blob. persist() writes STORAGE_RECOVERY_KEY
-    // instead so a later save cannot destroy the only copy of event responses.
-    storageUnreadable = true;
-    alert("⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
-          "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
-          "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.");
-    try {
-      const rec = localStorage.getItem(STORAGE_RECOVERY_KEY);
-      if (!rec) return [];
-      const data = JSON.parse(rec);
-      return Array.isArray(data) ? data : [];
-    } catch (e2) {
-      return [];
-    }
+    return { status: "corrupt", value: [] };
   }
+  return Array.isArray(data) ? { status: "ok", value: data } : { status: "corrupt", value: [] };
+}
+function load() {
+  const stored = readFormsKey(STORAGE_KEY);
+  if (stored.status !== "corrupt") return stored.value;
+  // Unreadable blob: keep it. persist() writes STORAGE_RECOVERY_KEY instead
+  // so a later save cannot destroy the only copy of event responses.
+  storageUnreadable = true;
+  alert("⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+        "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
+        "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.");
+  return readFormsKey(STORAGE_RECOVERY_KEY).value;
 }
 function persist() {
   const key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;

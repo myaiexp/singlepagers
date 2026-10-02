@@ -1,6 +1,6 @@
 // Regression test (audit #1378): each roll must re-render the active scorecard
-// exactly once. The original rollDice() called renderScorecard(currentPlayer) and
-// then enableScoring() — which itself calls renderScorecard(currentPlayer, true) —
+// exactly once. The original rollDice() called renderScorecard(currentSeatNo) and
+// then enableScoring() — which itself calls renderScorecard(currentSeatNo, true) —
 // so every roll rendered the scorecard twice, doing redundant DOM work. enableScoring
 // runs after every roll (rollsRemaining is always < 3 post-decrement), so the prior
 // standalone render was pure waste. This pins the flow to a single render per roll.

@@ -783,13 +783,16 @@
         // yatzy_playerNames is migrated once) and must NOT be cleared here —
         // stats reset is an explicit user action in confirmResetStats().
 
+        // Naming: `seatNo` is a seat number, 1 | 2; `seat` is that seat's
+        // { id, name } object from `players` (seatFor). Stats are keyed by seat.id.
+
         // Game State
-        let currentPlayer = 1;
+        let currentSeatNo = 1;
         let rollsRemaining = 3;
         let diceValues = [1, 2, 3, 4, 5];
         let keptDice = [false, false, false, false, false];
         let hasRolled = false;
-        // Rolls taken this game, per seat (keyed by currentPlayer), so each seat's
+        // Rolls taken this game, per seat (keyed by currentSeatNo), so each seat's
         // totalRolls statistic counts its own rolls, not the whole game's.
         let currentGameRolls = { 1: 0, 2: 0 };
         // In-flight roll lock: rollDice's 500ms settle writes diceValues and
@@ -842,6 +845,14 @@
 
         let player1Scores = JSON.parse(JSON.stringify(scoreCategories));
         let player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+
+        function scoresFor(seatNo) {
+            return seatNo === 1 ? player1Scores : player2Scores;
+        }
+
+        function seatFor(seatNo) {
+            return seatNo === 1 ? players.player1 : players.player2;
+        }
 
         // Escape user-controlled text before it enters an innerHTML template.
         // Player names come from a free-text input and persist in localStorage,
@@ -901,23 +912,27 @@
                   `New data is saved separately under "${key}${RECOVERY_SUFFIX}".`);
         }
 
+        // Read one key as { status, value }: 'absent' (nothing stored, or storage
+        // unreachable), 'corrupt' (stored but unusable — `value` undefined) or
+        // 'ok'. `isValid` rejects a blob that parses but is not the shape this
+        // store holds — equally unusable, and equally not ours to destroy.
+        function readKey(key, isValid) {
+            let raw;
+            try { raw = localStorage.getItem(key); } catch { return { status: 'absent' }; }
+            if (raw === null) return { status: 'absent' };
+            let parsed;
+            try { parsed = JSON.parse(raw); } catch { return { status: 'corrupt' }; }
+            return isValid(parsed) ? { status: 'ok', value: parsed } : { status: 'corrupt' };
+        }
+
         // Read one JSON store. Returns the parsed value, or undefined when there is
-        // nothing usable. `isValid` rejects a blob that parses but is not the shape
-        // this store holds — equally unusable, and equally not ours to destroy.
+        // nothing usable. A corrupt canonical blob is marked unreadable and its
+        // recovery copy read in its place.
         function readStore(key, isValid) {
-            const attempt = (k) => {
-                let raw;
-                try { raw = localStorage.getItem(k); } catch { return undefined; }
-                if (raw === null) return undefined;                      // nothing stored
-                let parsed;
-                try { parsed = JSON.parse(raw); } catch { return null; } // corrupt
-                return isValid(parsed) ? parsed : null;
-            };
-            const value = attempt(key);
-            if (value !== null) return value;
+            const stored = readKey(key, isValid);
+            if (stored.status !== 'corrupt') return stored.value;
             markUnreadable(key);
-            const recovered = attempt(key + RECOVERY_SUFFIX);
-            return recovered === null ? undefined : recovered;
+            return readKey(key + RECOVERY_SUFFIX, isValid).value;
         }
 
         // Set once the browser refuses a write (storage blocked, quota full,
@@ -1158,13 +1173,13 @@
             savePlayerStats(seat.id, stats);
         }
 
-        // winner: 0 tie, 1 or 2 the winning seat. p1 / p2: that seat's
+        // winner: 0 tie, else the winning seatNo. p1 / p2: that seat's
         // { score, bonus, yatzy, rolls } for the game just finished (seatResult).
         function updateGameStatistics(winner, p1, p2) {
             if (![0, 1, 2].includes(winner)) throw new Error(`unknown winner: ${winner}`);
-            const outcomeFor = (seat) => winner === 0 ? 'draw' : (winner === seat ? 'win' : 'loss');
-            updateOnePlayerStats(players.player1, { ...p1, outcome: outcomeFor(1) });
-            updateOnePlayerStats(players.player2, { ...p2, outcome: outcomeFor(2) });
+            const outcomeFor = (seatNo) => winner === 0 ? 'draw' : (winner === seatNo ? 'win' : 'loss');
+            updateOnePlayerStats(seatFor(1), { ...p1, outcome: outcomeFor(1) });
+            updateOnePlayerStats(seatFor(2), { ...p2, outcome: outcomeFor(2) });
         }
 
         function showStatsModal() {
@@ -1283,7 +1298,7 @@
 
             isRolling = true;
             hasRolled = true;
-            currentGameRolls[currentPlayer]++;
+            currentGameRolls[currentSeatNo]++;
             const dice = document.querySelectorAll('.die');
 
             dice.forEach(die => die.classList.add('rolling'));
@@ -1328,19 +1343,18 @@
         }
 
         function updateUI() {
-            const currentPlayerName = currentPlayer === 1 ? players.player1.name : players.player2.name;
-            document.getElementById('currentPlayer').textContent = `${currentPlayerName}'s Turn`;
+            document.getElementById('currentPlayer').textContent = `${seatFor(currentSeatNo).name}'s Turn`;
             document.getElementById('rollsRemaining').textContent = rollsRemaining;
 
             const rollBtn = document.getElementById('rollBtn');
             rollBtn.disabled = rollsRemaining === 0 || isRolling;
 
-            document.getElementById('scorecard1').classList.toggle('active', currentPlayer === 1);
-            document.getElementById('scorecard2').classList.toggle('active', currentPlayer === 2);
+            document.getElementById('scorecard1').classList.toggle('active', currentSeatNo === 1);
+            document.getElementById('scorecard2').classList.toggle('active', currentSeatNo === 2);
         }
 
         function enableScoring() {
-            renderScorecard(currentPlayer, true);
+            renderScorecard(currentSeatNo, true);
             // Notice that scoring will end the turn
             document.getElementById('scoringNotice').classList.add('show');
         }
@@ -1391,9 +1405,9 @@
             return upperTotal >= UPPER_BONUS_THRESHOLD ? UPPER_BONUS_POINTS : 0;
         }
 
-        function renderScorecard(player, enableClick = false) {
-            const scores = player === 1 ? player1Scores : player2Scores;
-            const container = document.getElementById(`scorecardBody${player}`);
+        function renderScorecard(seatNo, enableClick = false) {
+            const scores = scoresFor(seatNo);
+            const container = document.getElementById(`scorecardBody${seatNo}`);
 
             const upperTotal = calculateUpperTotal(scores);
             const bonus = bonusFor(upperTotal);
@@ -1401,7 +1415,7 @@
 
             // Potentials show only for the active player after a roll; compute the
             // map once and hand it to the row renderer.
-            const potentials = (player === currentPlayer && hasRolled) ? getPotentialScores(scores) : null;
+            const potentials = (seatNo === currentSeatNo && hasRolled) ? getPotentialScores(scores) : null;
 
             let html = renderCategoryRows(scores.upper, enableClick, potentials);
             html += `<div class="section-divider"></div>`;
@@ -1442,7 +1456,7 @@
         function scoreCategory(categoryId) {
             if (isRolling) return;
 
-            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
+            const scores = scoresFor(currentSeatNo);
             const score = calculateScore(categoryId);
 
             if (score === null) return;
@@ -1455,16 +1469,16 @@
             if (category && category.value === null) {
                 category.value = score;
 
-                renderScorecard(currentPlayer);
+                renderScorecard(currentSeatNo);
                 syncReferencePanel();
 
                 // Flash the just-scored row. The seat is captured now because
-                // nextTurn() below flips currentPlayer before the timer fires; the
+                // nextTurn() below flips currentSeatNo before the timer fires; the
                 // row itself is looked up late because nextTurn re-renders both
                 // scorecards, which would detach an element resolved here.
-                const scoredPlayer = currentPlayer;
+                const scoredSeatNo = currentSeatNo;
                 setTimeout(() => {
-                    const row = document.querySelector(`#scorecardBody${scoredPlayer} [data-cat-id="${categoryId}"]`);
+                    const row = document.querySelector(`#scorecardBody${scoredSeatNo} [data-cat-id="${categoryId}"]`);
                     if (row) {
                         row.classList.add('just-scored');
                         setTimeout(() => row.classList.remove('just-scored'), 1000);
@@ -1538,7 +1552,7 @@
             cancelPendingRoll();
             document.getElementById('scoringNotice').classList.remove('show');
 
-            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            currentSeatNo = currentSeatNo === 1 ? 2 : 1;
             rollsRemaining = 3;
             keptDice = [false, false, false, false, false];
             hasRolled = false;
@@ -1560,18 +1574,19 @@
         }
 
         // One seat's finished game, in the shape updateGameStatistics records.
-        function seatResult(scores, seat) {
+        function seatResult(seatNo) {
+            const scores = scoresFor(seatNo);
             return {
                 score: calculateGrandTotal(scores),
                 bonus: bonusFor(calculateUpperTotal(scores)) > 0,
                 yatzy: scores.lower.find(c => c.id === 'yatzy')?.value === 50,
-                rolls: currentGameRolls[seat]
+                rolls: currentGameRolls[seatNo]
             };
         }
 
         function endGame() {
-            const p1 = seatResult(player1Scores, 1);
-            const p2 = seatResult(player2Scores, 2);
+            const p1 = seatResult(1);
+            const p2 = seatResult(2);
 
             let winner = 0; // 0 = tie, 1 = player 1, 2 = player 2
             let winnerText = '';
@@ -1623,7 +1638,7 @@
         // Hide the scoring-hint reference tiles for categories the active player
         // has already filled, showing the rest.
         function syncReferencePanel() {
-            const scores = currentPlayer === 1 ? player1Scores : player2Scores;
+            const scores = scoresFor(currentSeatNo);
 
             document.querySelectorAll('.reference-item[data-section]').forEach(item => {
                 const section = item.dataset.section;
@@ -1642,7 +1657,7 @@
             cancelPendingRoll();
             clearConfetti();
 
-            currentPlayer = 1;
+            currentSeatNo = 1;
             rollsRemaining = 3;
             diceValues = [1, 2, 3, 4, 5];
             keptDice = [false, false, false, false, false];

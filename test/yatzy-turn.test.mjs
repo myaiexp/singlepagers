@@ -26,7 +26,7 @@ function loadGame() {
   // Drop init's opening roll if it queued one, and pin a known pre-roll state.
   timers.length = 0;
   run(`
-    currentPlayer = 1;
+    currentSeatNo = 1;
     rollsRemaining = 3;
     hasRolled = false;
     currentGameRolls = { 1: 0, 2: 0 };
@@ -70,21 +70,21 @@ test('scoreCategory during a pending roll does not run nextTurn until dice settl
   sandbox.scoreCategory('ones');
 
   assert.equal(nextTurn.count, 0, 'nextTurn must not run while a roll is in flight');
-  assert.equal(read('currentPlayer'), 1, 'player must not switch during the settle window');
+  assert.equal(read('currentSeatNo'), 1, 'player must not switch during the settle window');
   assert.equal(onesValue(read), null, 'category must not fill against unsettled dice');
   assert.equal(read('rollsRemaining'), 3);
 
   flush();
 
   assert.equal(nextTurn.count, 0, 'settling the roll must not itself score or change turns');
-  assert.equal(read('currentPlayer'), 1);
+  assert.equal(read('currentSeatNo'), 1);
   assert.equal(read('rollsRemaining'), 2);
   assert.equal(onesValue(read), null);
 
   sandbox.scoreCategory('ones');
   assert.equal(nextTurn.count, 1, 'scoring after settle must end the turn');
   assert.notEqual(onesValue(read), null, 'ones should fill after a settled roll');
-  assert.equal(read('currentPlayer'), 2);
+  assert.equal(read('currentSeatNo'), 2);
 });
 
 test('rollDice then scoreCategory then nextTurn runs as one turn sequence', () => {
@@ -94,11 +94,11 @@ test('rollDice then scoreCategory then nextTurn runs as one turn sequence', () =
   flush();
   assert.equal(read('rollsRemaining'), 2);
   assert.equal(read('hasRolled'), true);
-  assert.equal(read('currentPlayer'), 1);
+  assert.equal(read('currentSeatNo'), 1);
 
   const settledSum = read('diceValues.reduce((a, b) => a + b, 0)');
   sandbox.scoreCategory('chance');
-  assert.equal(read('currentPlayer'), 2, 'scoring must hand the turn to player 2');
+  assert.equal(read('currentSeatNo'), 2, 'scoring must hand the turn to player 2');
   assert.equal(
     read(`player1Scores.lower.find(c => c.id === 'chance').value`),
     settledSum,
@@ -110,7 +110,7 @@ test('rollDice then scoreCategory then nextTurn runs as one turn sequence', () =
 
   flush();
   assert.equal(read('rollsRemaining'), 2, 'next player auto-roll consumes one roll');
-  assert.equal(read('currentPlayer'), 2);
+  assert.equal(read('currentSeatNo'), 2);
   // finding #9577: the auto-roll is player 2's, not added to player 1's count.
   assert.equal(read('currentGameRolls[1]'), 1);
   assert.equal(read('currentGameRolls[2]'), 1);
@@ -124,7 +124,7 @@ test('newGame during a pending roll cancels the in-flight settle', () => {
   sandbox.newGame();
   flush();
 
-  assert.equal(read('currentPlayer'), 1);
+  assert.equal(read('currentSeatNo'), 1);
   assert.equal(read('rollsRemaining'), 2, 'only the new-game opening roll should settle');
   assert.equal(read('currentGameRolls[1]'), 1, 'newGame resets the counter then auto-rolls once');
 });
@@ -162,7 +162,7 @@ function fillCard(exec, card, except = null) {
 
 test('scoring as player 2 fills player2Scores, not player 1\'s card', () => {
   const { sandbox, flush, read, exec } = loadGame();
-  exec('currentPlayer = 2');
+  exec('currentSeatNo = 2');
   sandbox.rollDice();
   flush();
 
@@ -172,7 +172,7 @@ test('scoring as player 2 fills player2Scores, not player 1\'s card', () => {
   assert.equal(read(`player2Scores.lower.find(c => c.id === 'chance').value`), settledSum);
   assert.equal(read(`player1Scores.lower.find(c => c.id === 'chance').value`), null,
     'seat 1\'s card must be untouched');
-  assert.equal(read('currentPlayer'), 1, 'the turn passes back to player 1');
+  assert.equal(read('currentSeatNo'), 1, 'the turn passes back to player 1');
   assert.equal(read('currentGameRolls[2]'), 1);
 });
 
@@ -180,7 +180,7 @@ test('scoring the last open cell ends the game instead of passing the turn', () 
   const { sandbox, flush, read, exec } = loadGame();
   fillCard(exec, 'player1Scores');
   fillCard(exec, 'player2Scores', 'chance');
-  exec('currentPlayer = 2');
+  exec('currentSeatNo = 2');
   const nextTurn = spyOn(sandbox, 'nextTurn');
   const endGame = spyOn(sandbox, 'endGame');
 
@@ -190,7 +190,7 @@ test('scoring the last open cell ends the game instead of passing the turn', () 
 
   assert.equal(endGame.count, 1, 'the final cell must end the game');
   assert.equal(nextTurn.count, 0, 'a finished game must not start another turn');
-  assert.equal(read('currentPlayer'), 2);
+  assert.equal(read('currentSeatNo'), 2);
   assert.equal(sandbox.document.getElementById('gameOver').classList.contains('show'), true,
     'the game-over overlay is shown');
   assert.match(sandbox.document.getElementById('winnerText').innerHTML, /Player 2 Wins!/,
@@ -206,7 +206,7 @@ test('a complete card does not end the game while the other still has an open ce
   const { sandbox, flush, read, exec } = loadGame();
   fillCard(exec, 'player1Scores', 'chance');
   fillCard(exec, 'player2Scores', 'chance');
-  exec('currentPlayer = 2');
+  exec('currentSeatNo = 2');
   const nextTurn = spyOn(sandbox, 'nextTurn');
   const endGame = spyOn(sandbox, 'endGame');
 
@@ -216,7 +216,7 @@ test('a complete card does not end the game while the other still has an open ce
 
   assert.equal(endGame.count, 0, 'player 1 still has chance open');
   assert.equal(nextTurn.count, 1);
-  assert.equal(read('currentPlayer'), 1);
+  assert.equal(read('currentSeatNo'), 1);
 });
 
 test('the score flash lands on the scoring player\'s row, not the next player\'s', () => {
@@ -224,7 +224,7 @@ test('the score flash lands on the scoring player\'s row, not the next player\'s
   sandbox.rollDice();
   flush();
   sandbox.scoreCategory('chance');
-  assert.equal(read('currentPlayer'), 2, 'the turn has passed before the flash timer fires');
+  assert.equal(read('currentSeatNo'), 2, 'the turn has passed before the flash timer fires');
 
   flush(); // the 100ms flash timer (plus player 2's settle)
 
