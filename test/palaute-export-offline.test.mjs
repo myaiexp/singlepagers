@@ -4,11 +4,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, createExcelJSStub, captureAlerts, captureCreated } from './dom-stub.mjs';
+import {
+  loadPage, captureAlerts, captureCreated, captureDownloads, queueTimers,
+} from './dom-stub.mjs';
+import { createExcelJSStub } from './palaute-fixtures.mjs';
 import { PALAUTE_PATH } from './pages.mjs';
 
 function bootPalaute({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, realTimers = false } = {}) {
-  const downloads = [];
+  let downloads;
   let alerts;
   const { run } = loadPage(PALAUTE_PATH, {
     patch(sandbox) {
@@ -24,18 +27,7 @@ function bootPalaute({ withExcelJS = false, stubLoadExcelJS = !withExcelJS, real
         sandbox.clearTimeout = clearTimeout;
       }
       alerts = captureAlerts(sandbox);
-      sandbox.Blob = function Blob(parts, opts) {
-        this.parts = parts;
-        this.type = opts?.type || '';
-        this._text = parts.map(p => (typeof p === 'string' ? p : '')).join('');
-      };
-      sandbox.URL = {
-        createObjectURL: (blob) => {
-          downloads.push({ blob, type: blob.type, text: blob._text });
-          return 'blob:stub';
-        },
-        revokeObjectURL() {},
-      };
+      downloads = captureDownloads(sandbox);
       if (withExcelJS) {
         sandbox.ExcelJS = createExcelJSStub({ buffer: new Uint8Array([1, 2, 3]) }).ExcelJS;
       }
@@ -135,32 +127,33 @@ test('exportForms with zero forms alerts and does not download', async () => {
 // object URL in the same tick as click() can fail the download silently
 // (finding #9585), so the revoke must be scheduled, not run inline.
 test('downloadBlob clicks the anchor and defers revokeObjectURL to a timer', () => {
-  const log = [];
-  const timers = [];
+  const clicks = [];
+  let downloads;
+  let timers;
   const { run } = loadPage(PALAUTE_PATH, {
     patch(sandbox) {
-      sandbox.Blob = function Blob(parts, opts) { this.type = opts?.type || ''; };
-      sandbox.URL = {
-        createObjectURL: () => 'blob:stub',
-        revokeObjectURL: (url) => log.push(`revoke ${url}`),
-      };
-      sandbox.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+      downloads = captureDownloads(sandbox);
+      ({ timers } = queueTimers(sandbox));
       captureCreated(sandbox, (el, tag) => {
-        if (tag === 'a') el.click = () => log.push(`click ${el.download}`);
+        if (tag === 'a') el.click = () => clicks.push({ href: el.href, download: el.download });
       });
     },
   });
   run(`forms = ${JSON.stringify(FORMS)};`);
   run('exportJsonFallback()');
 
-  assert.equal(log.length, 1, 'only the click runs synchronously');
-  assert.match(log[0], /^click palaute-huippu2026-.*\.json$/);
+  assert.equal(downloads.length, 1);
+  const [dl] = downloads;
+  assert.equal(clicks.length, 1, 'the anchor is clicked synchronously');
+  assert.equal(clicks[0].href, dl.url, 'the anchor points at the object URL');
+  assert.match(clicks[0].download, /^palaute-huippu2026-.*\.json$/);
+  assert.equal(dl.revoked, false, 'the revoke must not run in the same tick as the click');
   const revoke = timers.find(t => t.ms === run('BLOB_REVOKE_DELAY_MS'));
   assert.ok(revoke, 'the revoke is scheduled on a BLOB_REVOKE_DELAY_MS timer');
   assert.ok(run('BLOB_REVOKE_DELAY_MS') >= 10000, 'the delay leaves the download time to start');
 
   revoke.fn();
-  assert.deepEqual(log.slice(1), ['revoke blob:stub'], 'the timer revokes the same object URL');
+  assert.equal(dl.revoked, true, 'the timer revokes the same object URL');
 });
 
 // SRI wiring is independent of whether the script actually loads: dropping

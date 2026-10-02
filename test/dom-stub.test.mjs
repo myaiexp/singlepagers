@@ -1,7 +1,8 @@
-// Harness contract (audit #8252, finding #9603): extractInlineScript, loadPage,
-// the sandbox patches and the shared ExcelJS stub live in dom-stub.mjs, page
-// paths in pages.mjs and yatzy scorecards in yatzy-fixtures.mjs, so page tests
-// do not reimplement the boot or restate the page's data model.
+// Harness contract (audit #8252, finding #9603, finding #10538): extractInlineScript,
+// loadPage and the sandbox patches live in dom-stub.mjs, page paths in pages.mjs,
+// yatzy scorecards in yatzy-fixtures.mjs and the ExcelJS stub in
+// palaute-fixtures.mjs, so page tests do not reimplement the boot, its patches,
+// or restate the page's data model.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,9 +10,11 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  extractInlineScript, loadPage, createExcelJSStub, createDocument, createSandbox,
-  stableElements, captureAlerts, captureCreated, dispatch, listeners,
+  extractInlineScript, loadPage, createDocument, createSandbox,
+  stableElements, captureAlerts, captureCreated, captureDownloads, queueTimers, spyOn,
+  dispatch, listeners,
 } from './dom-stub.mjs';
+import { createExcelJSStub } from './palaute-fixtures.mjs';
 import { PALAUTE_PATH, YATZY_PATH } from './pages.mjs';
 import { scorecardTotalling } from './yatzy-fixtures.mjs';
 
@@ -160,9 +163,53 @@ test('stableElements descendants keeps nodes per selector until innerHTML is rea
   list[0].classList.add('sel');
   assert.equal(entry.classList.contains('hidden'), true);
   assert.equal(list[0].classList.contains('sel'), true);
+  input.focus();
+  assert.equal(input.focused, true);
   entry.innerHTML = '<p>re-render</p>';
   assert.notEqual(entry.querySelector('#r-name'), input);
+  assert.equal(entry.querySelector('#r-name').focused, false, 'a re-rendered node starts unfocused');
   assert.notEqual(entry.querySelectorAll('.att'), list);
+});
+
+test('captureDownloads records each object URL, its blob text, and its revoke', () => {
+  const sandbox = createSandbox();
+  const downloads = captureDownloads(sandbox);
+  const a = sandbox.URL.createObjectURL(new sandbox.Blob(['{"a":', '1}'], { type: 'application/json' }));
+  const b = sandbox.URL.createObjectURL(new sandbox.Blob([new Uint8Array([1])]));
+  assert.notEqual(a, b);
+  sandbox.URL.revokeObjectURL(a);
+  assert.deepEqual(
+    downloads.map(({ type, text, url, revoked }) => ({ type, text, url, revoked })),
+    [
+      { type: 'application/json', text: '{"a":1}', url: a, revoked: true },
+      { type: '', text: '', url: b, revoked: false },
+    ],
+  );
+});
+
+test('queueTimers holds callbacks until flush and honours clearTimeout', () => {
+  const sandbox = createSandbox();
+  const { timers, flush } = queueTimers(sandbox);
+  const ran = [];
+  sandbox.setTimeout((x) => { ran.push(x); sandbox.setTimeout(() => ran.push('nested')); }, 10, 'a');
+  const id = sandbox.setTimeout(() => ran.push('cleared'), 20);
+  sandbox.clearTimeout(id);
+  assert.deepEqual(timers.map((t) => t.ms), [10]);
+  assert.deepEqual(ran, []);
+  flush();
+  assert.deepEqual(ran, ['a'], 'a callback queued during flush waits for the next one');
+  flush();
+  assert.deepEqual(ran, ['a', 'nested']);
+});
+
+test('spyOn counts calls through the page global, including internal ones', () => {
+  const { sandbox, run } = loadPage(YATZY_PATH);
+  const spy = spyOn(sandbox, 'getDieFace');
+  assert.equal(run('getDieFace(3)'), '⚂', 'the spy forwards to the original');
+  run('getDieFace(6)');
+  assert.equal(spy.count, 2);
+  assert.deepEqual(spy.calls.map((args) => [...args]), [[3], [6]]);
+  assert.throws(() => spyOn(sandbox, 'noSuchFunction'), /not a function/);
 });
 
 test('createExcelJSStub records worksheets/rows and returns the given buffer', async () => {

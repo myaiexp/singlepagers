@@ -25,7 +25,8 @@ export function createLocalStorage(seed = {}) {
 // chainable factory so calls like el.querySelector('.x').textContent = '…' don't throw.
 // `stable` (stableElements' `descendants`) returns one node per selector until innerHTML is
 // reassigned — a re-render replaces the descendants and their listeners, as in a
-// real DOM — and records classList, so a test can fire what the page bound.
+// real DOM — and records classList and focus() (`focused`), so a test can fire
+// what the page bound and see which node it focused.
 function makeElement({ stable = false } = {}) {
   const queries = new Map();
   const remember = (key, make) => {
@@ -42,13 +43,16 @@ function makeElement({ stable = false } = {}) {
     children: [],
     textContent: '', innerHTML: '', innerText: '', value: '',
     disabled: false, checked: false, className: '', id: '',
+    ...(stable ? { focused: false } : {}),
     appendChild(c) { return c; },
     removeChild(c) { return c; },
     insertBefore(c) { return c; },
     setAttribute() {},
     getAttribute() { return null; },
     ...listenerMethods,
-    focus() {}, blur() {}, select() {}, remove() {}, click() {},
+    focus() { if (stable) props.focused = true; },
+    blur() { if (stable) props.focused = false; },
+    select() {}, remove() {}, click() {},
   };
   return new Proxy(props, {
     get(target, prop) {
@@ -178,7 +182,8 @@ export function loadPage(htmlPath, { seed = {}, patch } = {}) {
 }
 
 // --- sandbox patches --------------------------------------------------------
-// Call these from loadPage's `patch` so they apply before the page script runs.
+// Call these from loadPage's `patch` so they apply before the page script runs
+// (spyOn is the exception: it wraps a function the page has already defined).
 // Each returns the record it keeps, for the test to read afterwards.
 
 // Make document[method] return the SAME element for a given key. The stub
@@ -225,55 +230,68 @@ export function captureCreated(sandbox, onCreate) {
   return created;
 }
 
-// Chainable stand-in for ExcelJS cells/rows/columns so style() closures run
-// without modelling fonts, fills, or alignments.
-function excelChain() {
-  const node = { getCell: () => excelChain(), getRow: () => excelChain() };
-  return new Proxy(node, {
-    get(t, p) {
-      if (p in t) return t[p];
-      if (typeof p === 'symbol') return undefined;
-      return () => excelChain();
+// Replace Blob and URL.createObjectURL/revokeObjectURL with recorders. Each
+// createObjectURL call appends { blob, type, text, url, revoked } and hands out
+// a unique `blob:stub/N` url; revokeObjectURL(url) sets that entry's `revoked`.
+// `text` joins the blob's string parts (a JSON export); binary parts (an xlsx
+// buffer) contribute nothing. Returns the array of downloads.
+export function captureDownloads(sandbox) {
+  const downloads = [];
+  sandbox.Blob = function Blob(parts = [], opts) {
+    this.parts = parts;
+    this.type = opts?.type || '';
+    this.text = parts.map((p) => (typeof p === 'string' ? p : '')).join('');
+  };
+  sandbox.URL = {
+    createObjectURL(blob) {
+      const url = `blob:stub/${downloads.length + 1}`;
+      downloads.push({ blob, type: blob.type, text: blob.text, url, revoked: false });
+      return url;
     },
-    set(t, p, v) { t[p] = v; return true; },
-  });
+    revokeObjectURL(url) {
+      const dl = downloads.find((d) => d.url === url);
+      if (dl) dl.revoked = true;
+    },
+  };
+  return downloads;
 }
 
-// Recording ExcelJS stand-in used by both export tests. `buffer` is what
-// `xlsx.writeBuffer()` resolves to (empty by default; a non-empty buffer lets
-// the xlsx download path look different from JSON).
-export function createExcelJSStub({ buffer = new Uint8Array(0) } = {}) {
-  const workbooks = [];
-  class Workbook {
-    constructor() {
-      this.worksheets = [];
-      workbooks.push(this);
+// Queue setTimeout callbacks instead of dropping them (the stub default), so a
+// test decides when they fire. Each entry is { id, fn, ms, args }; clearTimeout
+// removes it. flush() runs the callbacks queued so far, in order — anything they
+// queue waits for the next flush(). Returns { timers, flush }.
+export function queueTimers(sandbox) {
+  const timers = [];
+  let nextId = 1;
+  sandbox.setTimeout = (fn, ms, ...args) => {
+    const id = nextId++;
+    timers.push({ id, fn, ms, args });
+    return id;
+  };
+  sandbox.clearTimeout = (id) => {
+    const i = timers.findIndex((t) => t.id === id);
+    if (i !== -1) timers.splice(i, 1);
+  };
+  const flush = () => {
+    for (const t of timers.splice(0)) {
+      if (typeof t.fn === 'function') t.fn(...t.args);
     }
-    addWorksheet(name) {
-      const rows = [];
-      const ws = {
-        name,
-        rows,
-        addRow(r) { rows.push(r); return excelChain(); },
-        getRow: () => excelChain(),
-        getColumn: () => excelChain(),
-        getCell: () => excelChain(),
-        addConditionalFormatting() {},
-        mergeCells() {},
-      };
-      this.worksheets.push(ws);
-      return new Proxy(ws, {
-        get(t, p) {
-          if (p in t) return t[p];
-          if (typeof p === 'symbol') return undefined;
-          return () => excelChain();
-        },
-        set(t, p, v) { t[p] = v; return true; },
-      });
-    }
-    get xlsx() {
-      return { writeBuffer: async () => buffer };
-    }
-  }
-  return { ExcelJS: { Workbook }, workbooks };
+  };
+  return { timers, flush };
+}
+
+// Wrap the page function `sandbox[name]` so each call is recorded and then
+// forwarded. Call it after loadPage, once the page has defined the function. A
+// top-level function declaration is a property of the context global, so the
+// page's own internal calls resolve through it and are counted too. Returns
+// { calls, count }: one args array per call, and the number of calls.
+export function spyOn(sandbox, name) {
+  const original = sandbox[name];
+  if (typeof original !== 'function') throw new Error(`spyOn: sandbox.${name} is not a function`);
+  const calls = [];
+  sandbox[name] = (...args) => {
+    calls.push(args);
+    return original(...args);
+  };
+  return { calls, get count() { return calls.length; } };
 }

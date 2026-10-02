@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage } from './dom-stub.mjs';
+import { loadPage, spyOn } from './dom-stub.mjs';
 import { YATZY_PATH } from './pages.mjs';
 
 // Load the page script with a synchronous setTimeout so rollDice()'s deferred callback
@@ -29,16 +29,14 @@ test('a roll re-renders the active scorecard exactly once', () => {
   assert.equal(typeof sandbox.renderScorecard, 'function', 'page defined renderScorecard');
   assert.equal(typeof sandbox.rollDice, 'function', 'page defined rollDice');
 
-  // Spy on renderScorecard. It's a function declaration (a context global), so
-  // enableScoring()'s internal call resolves through the global to this spy.
-  const original = sandbox.renderScorecard;
-  let renders = 0;
-  sandbox.renderScorecard = (...args) => { renders++; return original(...args); };
+  // enableScoring()'s internal call resolves through the context global, so
+  // the spy counts it.
+  const renders = spyOn(sandbox, 'renderScorecard');
 
   // One roll: rollsRemaining goes 3 -> 2, so enableScoring() fires and renders the
   // active scorecard. The old code also rendered it once beforehand (two renders);
   // the fix collapses that to the single enableScoring() render.
   sandbox.rollDice();
 
-  assert.equal(renders, 1, `expected a single scorecard render per roll, got ${renders}`);
+  assert.equal(renders.count, 1, `expected a single scorecard render per roll, got ${renders.count}`);
 });

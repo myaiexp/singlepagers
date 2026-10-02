@@ -6,22 +6,22 @@
 //
 // Same no-deps harness as palaute-labels.test.mjs: loadPage runs the page's
 // real <script> under node:vm against the stub DOM. ExcelJS, Blob and URL are
-// injected so loadExcelJS() short-circuits (no network) and downloadBlob() is
-// inert. The shared stub captures every addWorksheet(name)/addRow(row); styling
+// injected so loadExcelJS() short-circuits (no network) and downloadBlob() only
+// records. The shared stub captures every addWorksheet(name)/addRow(row); styling
 // calls hit a forgiving proxy and are ignored — only the data wiring is under
 // test here.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, createExcelJSStub } from './dom-stub.mjs';
+import { loadPage, captureDownloads } from './dom-stub.mjs';
+import { createExcelJSStub } from './palaute-fixtures.mjs';
 import { PALAUTE_PATH } from './pages.mjs';
 
 const { ExcelJS, workbooks } = createExcelJSStub();
 const { run } = loadPage(PALAUTE_PATH, {
   patch(sandbox) {
     sandbox.ExcelJS = ExcelJS;
-    sandbox.Blob = function Blob() {};
-    sandbox.URL = { createObjectURL: () => 'blob:stub', revokeObjectURL() {} };
+    captureDownloads(sandbox);
   },
 });
 

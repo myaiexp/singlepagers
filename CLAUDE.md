@@ -69,7 +69,8 @@ monitoring: [`docs/exceljs.md`](docs/exceljs.md).
 
 Run `node --test test/*.test.mjs` (no deps). `loadPage` in `test/dom-stub.mjs`
 runs each page's inline script under `node:vm` against a fake DOM, with shared
-`patch` helpers (`stableElements`, `captureAlerts`, `captureCreated`), event
+`patch` helpers (`stableElements`, `captureAlerts`, `captureCreated`,
+`captureDownloads`, `queueTimers`, `spyOn`), event
 `dispatch`, and page paths in `test/pages.mjs`. Coverage gate, from an empty
 `.coverage/`: `NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs`
 (floors in `test/coverage.mjs`: palaute 97%, yatzy 92%). Harness, coverage

@@ -23,20 +23,28 @@ as `loadError`.
     `descendants: true` also keeps the element's `querySelector` /
     `querySelectorAll` results per selector until its `innerHTML` is
     reassigned, as a real re-render replaces descendants and their listeners,
-    and records classList throughout. Use it to fire what the page bound
-    (`onclick`, `addEventListener`) or to observe the entry/review `hidden`
-    toggle.
+    and records classList and `focus()` (`el.focused`) throughout. Use it to
+    fire what the page bound (`onclick`, `addEventListener`), to observe the
+    entry/review `hidden` toggle, or to check focus landed on the live render.
   - `captureAlerts(sandbox)` records `alert()` messages;
     `captureCreated(sandbox, onCreate)` records `document.createElement`.
+  - `captureDownloads(sandbox)` installs recording `Blob` / `URL`: one
+    `{ blob, type, text, url, revoked }` per `createObjectURL`.
+  - `queueTimers(sandbox)` returns `{ timers, flush }`: `setTimeout` queues,
+    `clearTimeout` removes, `flush()` runs what is queued so far.
+  - `spyOn(sandbox, name)` wraps a page function after load and returns
+    `{ calls, count }`; the page's own calls to it are counted too.
 - **Events** (`test/dom-events.mjs`, re-exported by `dom-stub.mjs`):
   `addEventListener` on elements and the document records.
   `dispatch(target, type, init)` calls the listeners in order with one event
   (`key`, `ctrlKey`, `metaKey`, `preventDefault`, ...) and returns it;
   `listeners(target, type)` lists them. There is no bubbling, and
   `document.activeElement` is whatever the test assigns.
-- `setTimeout` is a no-op, so assign `sandbox.setTimeout` when a callback must
-  run. `confirm()` returns false; assign `sandbox.confirm` to accept.
-- `createExcelJSStub()` is shared by the Excel-export tests.
+- `setTimeout` is a no-op, so use `queueTimers` (or assign
+  `sandbox.setTimeout`) when a callback must run. `confirm()` returns false;
+  assign `sandbox.confirm` to accept.
+- `createExcelJSStub()` in `test/palaute-fixtures.mjs` is shared by the
+  Excel-export tests.
 
 Paths come from `test/pages.mjs` (`YATZY_PATH`, `PALAUTE_PATH`, `REPO_ROOT`).
 `test/yatzy-fixtures.mjs` has `scorecardTotalling(run, upper, lower)`, built

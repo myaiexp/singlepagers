@@ -5,27 +5,22 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, stableElements } from './dom-stub.mjs';
+import { loadPage, stableElements, queueTimers, spyOn } from './dom-stub.mjs';
 import { YATZY_PATH } from './pages.mjs';
 
+// `read(expr)` evaluates an expression in the page realm and returns its value;
+// `exec(src)` runs statements there to set up a precondition. Both are the
+// loadPage runner — the split only tells the reader which one a line is doing.
 function loadGame() {
-  const timers = [];
-  let nextId = 1;
+  let timers;
+  let flush;
   const { sandbox, run } = loadPage(YATZY_PATH, {
     patch(s) {
       // Stable lookups with a recording classList, so #gameOver's `show` and
       // the score-flash row's `just-scored` can be read back.
       stableElements(s, { recordClasses: true });
       stableElements(s, { method: 'querySelector', recordClasses: true });
-      s.setTimeout = (fn) => {
-        const id = nextId++;
-        timers.push({ id, fn });
-        return id;
-      };
-      s.clearTimeout = (id) => {
-        const i = timers.findIndex((t) => t.id === id);
-        if (i !== -1) timers.splice(i, 1);
-      };
+      ({ timers, flush } = queueTimers(s));
     },
   });
   // Drop init's opening roll if it queued one, and pin a known pre-roll state.
@@ -41,15 +36,8 @@ function loadGame() {
     player2Scores = JSON.parse(JSON.stringify(scoreCategories));
     isRolling = false;
   `);
-  const flush = () => {
-    const batch = timers.splice(0);
-    for (const t of batch) {
-      if (typeof t.fn === 'function') t.fn();
-    }
-  };
-  const read = (expr) => run(expr);
   const rollBtn = () => sandbox.document.getElementById('rollBtn');
-  return { sandbox, flush, timers, read, rollBtn };
+  return { sandbox, flush, timers, read: run, exec: run, rollBtn };
 }
 
 function onesValue(read) {
@@ -76,31 +64,25 @@ test('double-invoking rollDice during the settle window consumes one roll, not t
 
 test('scoreCategory during a pending roll does not run nextTurn until dice settle', () => {
   const { sandbox, flush, read } = loadGame();
-
-  let nextTurnCalls = 0;
-  const originalNextTurn = sandbox.nextTurn;
-  sandbox.nextTurn = (...args) => {
-    nextTurnCalls++;
-    return originalNextTurn(...args);
-  };
+  const nextTurn = spyOn(sandbox, 'nextTurn');
 
   sandbox.rollDice();
   sandbox.scoreCategory('ones');
 
-  assert.equal(nextTurnCalls, 0, 'nextTurn must not run while a roll is in flight');
+  assert.equal(nextTurn.count, 0, 'nextTurn must not run while a roll is in flight');
   assert.equal(read('currentPlayer'), 1, 'player must not switch during the settle window');
   assert.equal(onesValue(read), null, 'category must not fill against unsettled dice');
   assert.equal(read('rollsRemaining'), 3);
 
   flush();
 
-  assert.equal(nextTurnCalls, 0, 'settling the roll must not itself score or change turns');
+  assert.equal(nextTurn.count, 0, 'settling the roll must not itself score or change turns');
   assert.equal(read('currentPlayer'), 1);
   assert.equal(read('rollsRemaining'), 2);
   assert.equal(onesValue(read), null);
 
   sandbox.scoreCategory('ones');
-  assert.equal(nextTurnCalls, 1, 'scoring after settle must end the turn');
+  assert.equal(nextTurn.count, 1, 'scoring after settle must end the turn');
   assert.notEqual(onesValue(read), null, 'ones should fill after a settled roll');
   assert.equal(read('currentPlayer'), 2);
 });
@@ -172,25 +154,15 @@ test('sequential rolls after each settle still consume one roll each', () => {
 // player2Scores branch and its isGameOver → endGame path were never entered.
 
 // Fill every category on one card with 0, leaving `except` open.
-function fillCard(read, card, except = null) {
-  read(`[...${card}.upper, ...${card}.lower].forEach(c => {
+function fillCard(exec, card, except = null) {
+  exec(`[...${card}.upper, ...${card}.lower].forEach(c => {
     if (c.id !== ${JSON.stringify(except)}) c.value = 0;
   })`);
 }
 
-function spy(sandbox, name) {
-  const calls = { count: 0 };
-  const original = sandbox[name];
-  sandbox[name] = (...args) => {
-    calls.count++;
-    return original(...args);
-  };
-  return calls;
-}
-
 test('scoring as player 2 fills player2Scores, not player 1\'s card', () => {
-  const { sandbox, flush, read } = loadGame();
-  read('currentPlayer = 2');
+  const { sandbox, flush, read, exec } = loadGame();
+  exec('currentPlayer = 2');
   sandbox.rollDice();
   flush();
 
@@ -205,12 +177,12 @@ test('scoring as player 2 fills player2Scores, not player 1\'s card', () => {
 });
 
 test('scoring the last open cell ends the game instead of passing the turn', () => {
-  const { sandbox, flush, read } = loadGame();
-  fillCard(read, 'player1Scores');
-  fillCard(read, 'player2Scores', 'chance');
-  read('currentPlayer = 2');
-  const nextTurn = spy(sandbox, 'nextTurn');
-  const endGame = spy(sandbox, 'endGame');
+  const { sandbox, flush, read, exec } = loadGame();
+  fillCard(exec, 'player1Scores');
+  fillCard(exec, 'player2Scores', 'chance');
+  exec('currentPlayer = 2');
+  const nextTurn = spyOn(sandbox, 'nextTurn');
+  const endGame = spyOn(sandbox, 'endGame');
 
   sandbox.rollDice();
   flush();
@@ -231,12 +203,12 @@ test('scoring the last open cell ends the game instead of passing the turn', () 
 });
 
 test('a complete card does not end the game while the other still has an open cell', () => {
-  const { sandbox, flush, read } = loadGame();
-  fillCard(read, 'player1Scores', 'chance');
-  fillCard(read, 'player2Scores', 'chance');
-  read('currentPlayer = 2');
-  const nextTurn = spy(sandbox, 'nextTurn');
-  const endGame = spy(sandbox, 'endGame');
+  const { sandbox, flush, read, exec } = loadGame();
+  fillCard(exec, 'player1Scores', 'chance');
+  fillCard(exec, 'player2Scores', 'chance');
+  exec('currentPlayer = 2');
+  const nextTurn = spyOn(sandbox, 'nextTurn');
+  const endGame = spyOn(sandbox, 'endGame');
 
   sandbox.rollDice();
   flush();
@@ -281,7 +253,7 @@ function arr(read, expr) {
 }
 
 test('held dice keep their face across a subsequent roll', () => {
-  const { sandbox, flush, read } = loadGame();
+  const { sandbox, flush, read, exec } = loadGame();
 
   sandbox.rollDice();
   flush();
@@ -289,7 +261,7 @@ test('held dice keep their face across a subsequent roll', () => {
   sandbox.toggleKeepDie(1);
   assert.deepEqual(arr(read, 'keptDice'), [true, true, false, false, false]);
 
-  read('diceValues = [1, 2, 3, 4, 5]');
+  exec('diceValues = [1, 2, 3, 4, 5]');
   forceRandom(sandbox, 0.99); // Math.floor(0.99 * 6) + 1 === 6
 
   sandbox.rollDice();
@@ -318,8 +290,8 @@ test('toggleKeepDie is a no-op while dice are settling', () => {
 });
 
 test('toggleKeepDie is a no-op at rollsRemaining === 3 even if hasRolled is true', () => {
-  const { sandbox, read } = loadGame();
-  read('hasRolled = true; rollsRemaining = 3; isRolling = false;');
+  const { sandbox, read, exec } = loadGame();
+  exec('hasRolled = true; rollsRemaining = 3; isRolling = false;');
   sandbox.toggleKeepDie(2);
   assert.deepEqual(arr(read, 'keptDice'), [false, false, false, false, false]);
 });
