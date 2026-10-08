@@ -19,11 +19,13 @@
 
 Push to `origin` (`forgejo@localhost:mase/singlepagers.git`) fires Forgejo's
 post-receive hook → `forgejo-deploy singlepagers <branch>`. The usual path is
-`deploy`, which lands the worktree on `master` and pushes. The hook checks the
-pushed ref out to a temp dir and copies **top-level** `*.html` into
-`/var/www/html/` (`cp "$TMPDIR"/*.html`). `test/` is not copied, so
-`test/smoke.html` is not published. Confirm a deploy by fetching the two live
-URLs above; `https://mase.fi/test/smoke.html` must 404.
+`deploy`, which lands the worktree on `master` and pushes to every configured
+remote. That includes `github` (public mirror, github.com/myaiexp/singlepagers);
+only origin's hook publishes pages. The hook checks the pushed ref out to a
+temp dir and copies **top-level** `*.html` into `/var/www/html/`
+(`cp "$TMPDIR"/*.html`). `test/` is not copied, so `test/smoke.html` is not
+published. Confirm a deploy by fetching the two live URLs above;
+`https://mase.fi/test/smoke.html` must 404.
 
 ## Storage
 
@@ -73,5 +75,5 @@ runs each page's inline script under `node:vm` against a fake DOM, with shared
 `captureDownloads`, `queueTimers`, `spyOn`), event
 `dispatch`, and page paths in `test/pages.mjs`. Coverage gate, from an empty
 `.coverage/`: `NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs`
-(floors in `test/coverage.mjs`: palaute 97%, yatzy 92%). Harness, coverage
+(floors in `test/coverage.mjs`: palaute 99%, yatzy 95%). Harness, coverage
 rationale, and the manual `test/smoke.html` check: [`docs/testing.md`](docs/testing.md).

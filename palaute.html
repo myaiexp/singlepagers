@@ -683,9 +683,12 @@ reviewBtn.onclick = () =>
  * Global keyboard fast-path (attendance / ratings / recommend)
  * ------------------------------------------------------------------ */
 document.addEventListener("keydown", e => {
-  // Ctrl+Enter always saves when on entry view
+  // Ctrl/Cmd+Enter saves on the entry view. A held key auto-repeats; each
+  // repeat would save another form after resetEntry blanks the current one.
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !entryEl.classList.contains("hidden")) {
-    e.preventDefault(); saveForm(); return;
+    e.preventDefault();
+    if (!e.repeat) saveForm();
+    return;
   }
   // Don't hijack number keys while typing in a text field or on review view
   const tag = (document.activeElement || {}).tagName;

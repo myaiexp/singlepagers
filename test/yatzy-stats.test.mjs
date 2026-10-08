@@ -141,6 +141,39 @@ test('renaming a player mid-game keeps stats under the same seat id', () => {
   assert.equal(Object.keys(bag).filter(k => bag[k].gamesPlayed > 0).length, 2); // Alice seat + Bob seat
 });
 
+// finding #12347: the other mergeStats cases pass every counter on both sides.
+// A legacy row is partial (`{ gamesPlayed, wins, totalPoints }`), and dropping
+// an `|| 0` makes the sum NaN, which JSON then stores as null.
+test('mergeStats treats a partial legacy row as zeros and keeps a name', () => {
+  const s = loadGame();
+  const merged = JSON.parse(s.run(`JSON.stringify(mergeStats(
+    { name: 'Alice', gamesPlayed: 2, wins: 1, losses: 1, draws: 4,
+      totalRolls: 20, highestScore: 180, totalPoints: 300, yatzysScored: 1, bonusCount: 2 },
+    { gamesPlayed: 3, wins: 2, totalPoints: 540 }
+  ))`));
+  for (const [key, value] of Object.entries(merged)) {
+    if (key === 'name') continue;
+    assert.equal(Number.isFinite(value), true, `${key} must stay a finite number`);
+  }
+  assert.equal(merged.name, 'Alice', 'a legacy row with no name keeps a.name');
+  assert.equal(merged.gamesPlayed, 5);
+  assert.equal(merged.wins, 3);
+  assert.equal(merged.losses, 1);
+  assert.equal(merged.draws, 4);
+  assert.equal(merged.totalRolls, 20);
+  assert.equal(merged.highestScore, 180);
+  assert.equal(merged.totalPoints, 840);
+  assert.equal(merged.yatzysScored, 1);
+  assert.equal(merged.bonusCount, 2);
+
+  const blank = JSON.parse(s.run('JSON.stringify(mergeStats({}, {}))'));
+  assert.equal(blank.name, '');
+  for (const [key, value] of Object.entries(blank)) {
+    if (key === 'name') continue;
+    assert.equal(value, 0, key);
+  }
+});
+
 test('mergeStats adds counters, takes max highestScore, prefers b.name', () => {
   const s = loadGame();
   const merged = s.run(`JSON.stringify(mergeStats(

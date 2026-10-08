@@ -47,6 +47,20 @@ test('Ctrl+Enter and Cmd+Enter save on the entry view', () => {
   assert.equal(run('forms.length'), 2);
 });
 
+// Holding Ctrl+Enter auto-repeats. Each repeat used to save another form
+// (finding #11960). A separate press still saves; whether a blank one should
+// count is a product call and is not decided here.
+test('a repeating Ctrl+Enter does not save another form', () => {
+  const { run, key } = boot();
+  run('current.free.best = "Hyva"');
+  key('Enter', { ctrlKey: true });
+  assert.equal(run('forms.length'), 1);
+  const repeat = key('Enter', { ctrlKey: true, repeat: true });
+  assert.equal(repeat.defaultPrevented, true, 'the repeat is still swallowed');
+  assert.equal(run('forms.length'), 1);
+  assert.equal(run('forms[0].free.best'), 'Hyva');
+});
+
 test('plain Enter does not save', () => {
   const { run, key } = boot();
   const ev = key('Enter');

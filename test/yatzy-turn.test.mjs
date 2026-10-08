@@ -27,13 +27,9 @@ function loadGame() {
   timers.length = 0;
   run(`
     currentSeatNo = 1;
-    rollsRemaining = 3;
-    hasRolled = false;
     currentGameRolls = { 1: 0, 2: 0 };
-    keptDice = [false, false, false, false, false];
-    diceValues = [1, 2, 3, 4, 5];
-    player1Scores = JSON.parse(JSON.stringify(scoreCategories));
-    player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+    resetTurnState();
+    freshScorecards();
     isRolling = false;
   `);
   const rollBtn = () => sandbox.document.getElementById('rollBtn');

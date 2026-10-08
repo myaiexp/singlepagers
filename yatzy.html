@@ -788,10 +788,20 @@
 
         // Game State
         let currentSeatNo = 1;
-        let rollsRemaining = 3;
-        let diceValues = [1, 2, 3, 4, 5];
-        let keptDice = [false, false, false, false, false];
-        let hasRolled = false;
+        let rollsRemaining;
+        let diceValues;
+        let keptDice;
+        let hasRolled;
+
+        // nextTurn and newGame both start a turn from here. A per-turn field
+        // assigned in only one of them drifts.
+        function resetTurnState() {
+            rollsRemaining = 3;
+            keptDice = [false, false, false, false, false];
+            hasRolled = false;
+            diceValues = [1, 2, 3, 4, 5];
+        }
+        resetTurnState();
         // Rolls taken this game, per seat (keyed by currentSeatNo), so each seat's
         // totalRolls statistic counts its own rolls, not the whole game's.
         let currentGameRolls = { 1: 0, 2: 0 };
@@ -843,8 +853,14 @@
             ]
         };
 
-        let player1Scores = JSON.parse(JSON.stringify(scoreCategories));
-        let player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+        let player1Scores;
+        let player2Scores;
+
+        function freshScorecards() {
+            player1Scores = JSON.parse(JSON.stringify(scoreCategories));
+            player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+        }
+        freshScorecards();
 
         function scoresFor(seatNo) {
             return seatNo === 1 ? player1Scores : player2Scores;
@@ -862,12 +878,18 @@
                 ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
-        function init() {
-            initSeats();
-            setupDiceListeners();
+        // updateUI stays at the call site: nextTurn refreshes the turn label
+        // before the cards repaint, newGame and init do it after.
+        function renderScorecards() {
             renderScorecard(1);
             renderScorecard(2);
             syncReferencePanel();
+        }
+
+        function init() {
+            initSeats();
+            setupDiceListeners();
+            renderScorecards();
             updateUI();
             rollDice();
         }
@@ -1187,43 +1209,64 @@
             showModal('statsModal');
         }
 
+        // A counter from localStorage is not necessarily a number. Interpolating
+        // the raw value into innerHTML would turn a string payload into a tag.
+        function statNum(v) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : 0;
+        }
+
         function renderStatistics() {
             const allStats = loadAllStats();
             const content = document.getElementById('statsContent');
-            
-            if (Object.keys(allStats).length === 0) {
+            // Migration keeps non-object rows (null, a bare number) so a bad
+            // value is not deleted. Reading stats.name on one of those throws
+            // and the Statistics modal can never open again.
+            const rows = Object.entries(allStats).filter(([, stats]) =>
+                !!stats && typeof stats === 'object' && !Array.isArray(stats));
+
+            if (rows.length === 0) {
                 content.innerHTML = '<div class="no-stats">No statistics available yet. Play some games to see your stats!</div>';
                 return;
             }
 
             let html = '<div class="stats-grid">';
-            
-            for (const [playerId, stats] of Object.entries(allStats)) {
+
+            for (const [playerId, stats] of rows) {
                 // Prefer live seat name when this id is currently seated
                 const seat = Object.values(players).find(p => p.id === playerId);
                 const displayName = seat ? seat.name : (stats.name || playerId);
-                const winRate = stats.gamesPlayed > 0 ? ((stats.wins / stats.gamesPlayed) * 100).toFixed(1) : '0.0';
-                const avgScore = stats.gamesPlayed > 0 ? (stats.totalPoints / stats.gamesPlayed).toFixed(1) : '0.0';
-                const avgRolls = stats.gamesPlayed > 0 ? (stats.totalRolls / stats.gamesPlayed).toFixed(1) : '0.0';
-                
+                const gamesPlayed = statNum(stats.gamesPlayed);
+                const wins = statNum(stats.wins);
+                const losses = statNum(stats.losses);
+                const draws = statNum(stats.draws);
+                const totalRolls = statNum(stats.totalRolls);
+                const highestScore = statNum(stats.highestScore);
+                const totalPoints = statNum(stats.totalPoints);
+                const yatzysScored = statNum(stats.yatzysScored);
+                const bonusCount = statNum(stats.bonusCount);
+                const winRate = gamesPlayed > 0 ? ((wins / gamesPlayed) * 100).toFixed(1) : '0.0';
+                const avgScore = gamesPlayed > 0 ? (totalPoints / gamesPlayed).toFixed(1) : '0.0';
+                const avgRolls = gamesPlayed > 0 ? (totalRolls / gamesPlayed).toFixed(1) : '0.0';
+
                 html += `
                     <div class="stat-card">
                         <h4>🎲 ${escapeHtml(displayName)}</h4>
                         <div class="stat-row">
                             <span class="stat-label">Games Played</span>
-                            <span class="stat-value stat-highlight">${stats.gamesPlayed}</span>
+                            <span class="stat-value stat-highlight">${gamesPlayed}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Wins</span>
-                            <span class="stat-value" style="color: #28a745;">${stats.wins}</span>
+                            <span class="stat-value" style="color: #28a745;">${wins}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Losses</span>
-                            <span class="stat-value" style="color: #dc3545;">${stats.losses}</span>
+                            <span class="stat-value" style="color: #dc3545;">${losses}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Ties</span>
-                            <span class="stat-value" style="color: #6c757d;">${stats.draws || 0}</span>
+                            <span class="stat-value" style="color: #6c757d;">${draws}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Win Rate</span>
@@ -1231,7 +1274,7 @@
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Highest Score</span>
-                            <span class="stat-value" style="color: #ffc107;">${stats.highestScore}</span>
+                            <span class="stat-value" style="color: #ffc107;">${highestScore}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Average Score</span>
@@ -1239,7 +1282,7 @@
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Total Points</span>
-                            <span class="stat-value">${stats.totalPoints}</span>
+                            <span class="stat-value">${totalPoints}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Average Rolls/Game</span>
@@ -1247,11 +1290,11 @@
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Yatzys Scored</span>
-                            <span class="stat-value" style="color: #667eea;">🎯 ${stats.yatzysScored}</span>
+                            <span class="stat-value" style="color: #667eea;">🎯 ${yatzysScored}</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">Bonuses Earned</span>
-                            <span class="stat-value" style="color: #ffc107;">⭐ ${stats.bonusCount}</span>
+                            <span class="stat-value" style="color: #ffc107;">⭐ ${bonusCount}</span>
                         </div>
                     </div>
                 `;
@@ -1553,17 +1596,10 @@
             document.getElementById('scoringNotice').classList.remove('show');
 
             currentSeatNo = currentSeatNo === 1 ? 2 : 1;
-            rollsRemaining = 3;
-            keptDice = [false, false, false, false, false];
-            hasRolled = false;
-
-            diceValues = [1, 2, 3, 4, 5];
+            resetTurnState();
             updateDiceDisplay();
             updateUI();
-
-            renderScorecard(1);
-            renderScorecard(2);
-            syncReferencePanel();
+            renderScorecards();
             rollDice();
         }
 
@@ -1658,21 +1694,14 @@
             clearConfetti();
 
             currentSeatNo = 1;
-            rollsRemaining = 3;
-            diceValues = [1, 2, 3, 4, 5];
-            keptDice = [false, false, false, false, false];
-            hasRolled = false;
+            resetTurnState();
             currentGameRolls = { 1: 0, 2: 0 };
-
-            player1Scores = JSON.parse(JSON.stringify(scoreCategories));
-            player2Scores = JSON.parse(JSON.stringify(scoreCategories));
+            freshScorecards();
 
             document.getElementById('gameOver').classList.remove('show');
 
             updateDiceDisplay();
-            renderScorecard(1);
-            renderScorecard(2);
-            syncReferencePanel();
+            renderScorecards();
             updateUI();
             rollDice();
         }

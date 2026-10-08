@@ -172,3 +172,64 @@ test('loadExcelJS pins integrity and anonymous crossOrigin on the injected scrip
   assert.match(run('EXCELJS_SRI'), /^sha512-/);
   assert.equal(script.el.crossOrigin, 'anonymous');
 });
+
+// The stub's appendChild never fires a script, so onload, onerror and the
+// in-flight cache (finding #12350) never ran. Deleting onerror would leave
+// an offline device waiting out the 8s timeout with these tests red.
+
+function trackScripts(sandbox) {
+  const created = captureCreated(sandbox, (el, tag) => {
+    if (tag !== 'script') return;
+    el.removed = false;
+    el.remove = () => { el.removed = true; };
+  });
+  const timers = queueTimers(sandbox);
+  return { created, ...timers };
+}
+
+test('loadExcelJS onerror rejects, drops the cache, and cancels the timeout', async () => {
+  let tracked;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sb) { tracked = trackScripts(sb); },
+  });
+  const pending = run('loadExcelJS()');
+  const script = tracked.created.find((c) => c.tag === 'script');
+  assert.ok(script, 'a script tag was injected');
+  assert.equal(tracked.timers.length, 1);
+
+  script.el.onerror();
+
+  await assert.rejects(pending, /failed/i);
+  assert.equal(run('excelJsLoad'), null, 'a failed load must be retryable');
+  assert.equal(tracked.timers.length, 0, 'the timeout must not also fire');
+  assert.equal(script.el.removed, true);
+});
+
+test('loadExcelJS onload resolves and a late timeout must not drop the cache', async () => {
+  let tracked;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sb) { tracked = trackScripts(sb); },
+  });
+  const pending = run('loadExcelJS()');
+  const script = tracked.created.find((c) => c.tag === 'script');
+  script.el.onload();
+  await pending;
+  tracked.flush();
+
+  assert.equal(script.el.removed, false, 'a successful load keeps the script');
+  assert.equal(tracked.timers.length, 0);
+  assert.equal(run('excelJsLoad'), pending, 'the resolved promise stays cached');
+  assert.equal(run('loadExcelJS()'), pending, 'a second call does not inject again');
+  assert.equal(tracked.created.filter((c) => c.tag === 'script').length, 1);
+});
+
+test('loadExcelJS returns the same in-flight promise and injects one script', () => {
+  let tracked;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sb) { tracked = trackScripts(sb); },
+  });
+  const first = run('loadExcelJS()');
+  const second = run('loadExcelJS()');
+  assert.equal(second, first);
+  assert.equal(tracked.created.filter((c) => c.tag === 'script').length, 1);
+});

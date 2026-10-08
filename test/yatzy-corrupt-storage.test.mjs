@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage } from './dom-stub.mjs';
+import { loadPage, stableElements } from './dom-stub.mjs';
 import { YATZY_PATH } from './pages.mjs';
 
 const CORRUPT = '{"player1": {"id": "seat-1"'; // truncated JSON — throws on parse
@@ -153,4 +153,69 @@ test('confirmResetStats clears both stats keys and returns writes to the canonic
   assert.ok(JSON.parse(ls.getItem('yatzy_statistics') || 'null'),
     'the next game must land on yatzy_statistics, not the recovery sibling');
   assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
+});
+
+// finding #12346: migrateLegacyNameKeyedStats keeps non-object rows on purpose.
+// renderStatistics used to throw on the null (`stats.name`) and interpolate a
+// string counter straight into innerHTML. stableElements so the write is readable.
+function loadRenderable() {
+  const { run } = loadPage(YATZY_PATH, {
+    patch(sb) { stableElements(sb); },
+  });
+  return { run };
+}
+
+const ROW = {
+  losses: 0, draws: 0, totalRolls: 10, totalPoints: 100, yatzysScored: 0, bonusCount: 0,
+};
+
+test('renderStatistics skips non-object rows and does not treat a string counter as HTML', () => {
+  const { run } = loadRenderable();
+  const stored = {
+    'orphan-1': {
+      ...ROW,
+      name: '<b>Nimi</b>',
+      gamesPlayed: '<img src=x onerror=1>',
+      wins: 2,
+      highestScore: '<img src=x onerror=1>',
+    },
+    'ghost-null': null,
+    'num-row-99': 5,
+    '<i>orphan</i>': {
+      ...ROW,
+      name: '',
+      gamesPlayed: 3,
+      wins: 1,
+      losses: 1,
+      draws: 1,
+      totalRolls: 9,
+      highestScore: 50,
+      totalPoints: 90,
+    },
+  };
+  run(`saveAllStats(${JSON.stringify(stored)}); migrateLegacyNameKeyedStats(players);`);
+  const bag = JSON.parse(run('JSON.stringify(loadAllStats())'));
+  assert.equal(bag['ghost-null'], null, 'migration keeps a null row');
+  assert.equal(bag['num-row-99'], 5, 'migration keeps a number row');
+
+  assert.doesNotThrow(() => run('renderStatistics()'));
+  const html = run('document.getElementById("statsContent").innerHTML');
+  assert.match(html, /&lt;b&gt;Nimi/, 'an unseated stored name is escaped');
+  assert.match(html, /&lt;i&gt;orphan/, 'a missing name falls back to the key, escaped');
+  assert.match(html, />2</, 'a real win count is still shown');
+  assert.match(html, />3</, 'a numeric gamesPlayed is still shown');
+  assert.match(html, />100</);
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /onerror/);
+  assert.doesNotMatch(html, /ghost-null/);
+  assert.doesNotMatch(html, /num-row-99/);
+});
+
+test('renderStatistics shows the empty state when every stored row is non-object', () => {
+  const { run } = loadRenderable();
+  run('saveAllStats({ Ghost: null, Num: 5 });');
+  assert.doesNotThrow(() => run('renderStatistics()'));
+  const html = run('document.getElementById("statsContent").innerHTML');
+  assert.match(html, /No statistics available yet/);
+  assert.doesNotMatch(html, /stat-card/);
 });

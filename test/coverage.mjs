@@ -6,13 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 export const PAGES = ['palaute.html', 'yatzy.html'];
 
-// Current measured function-entry rate, rounded down: palaute 138/141 = 97.9%,
-// yatzy 92/99 = 92.9%. A ratchet, not a target: raise it when coverage rises.
-// A one-function drop fails yatzy (91.9%); palaute has one function of slack
-// (137/141 = 97.2%), two fail it.
+// Current measured function-entry rate, rounded down: palaute 144/145 = 99.3%,
+// yatzy 102/107 = 95.3%. A ratchet, not a target: raise it when coverage rises.
+// A one-function drop fails both (palaute 143/145 = 98.6%, yatzy 101/107 = 94.4%).
 export const FLOORS = {
-  'palaute.html': 97,
-  'yatzy.html': 92,
+  'palaute.html': 99,
+  'yatzy.html': 95,
 };
 
 export function percent(entered, total) {
