@@ -206,7 +206,9 @@ const FREETEXT = [
  * State
  * ------------------------------------------------------------------ */
 let storageUnreadable = false; // true when STORAGE_KEY holds a blob load() could not use
+let deletedIds = new Set(); // ids removed on purpose; a merge must not bring them back
 let forms = load();        // array of saved form objects
+let baseJson = snapshotForms(forms); // JSON per id at the last successful read or write
 let current = blankForm(); // form being entered/edited
 let editingId = null;      // id of form being edited, or null for a new one
 let cursor = { section: "attendance" }; // keyboard cursor; null once entry moves to the text fields
@@ -245,21 +247,133 @@ function readFormsKey(key) {
   }
   return Array.isArray(data) ? { status: "ok", value: data } : { status: "corrupt", value: [] };
 }
+// Deletes live beside the forms array. Folding them into that array would make
+// it a non-array, and load() would treat every existing store as corrupt.
+function deletedStorageKey(formsKey) {
+  return formsKey + "_deleted";
+}
+function snapshotForms(list) {
+  const m = new Map();
+  for (const f of list) {
+    if (f && typeof f.id === "string") m.set(f.id, JSON.stringify(f));
+  }
+  return m;
+}
+function readDeletedIds(key) {
+  let raw;
+  try {
+    raw = localStorage.getItem(key);
+  } catch (e) {
+    return new Set();
+  }
+  if (!raw) return new Set();
+  try {
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return new Set();
+    return new Set(data.filter(id => typeof id === "string" && id));
+  } catch (e) {
+    return new Set();
+  }
+}
+function withoutDeleted(list) {
+  return list.filter(f => !f || typeof f.id !== "string" || !deletedIds.has(f.id));
+}
+function newId() {
+  return (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+}
+// No attendance, rating, recommend, free text, name or phone. Whitespace-only
+// text is empty. The id does not count: a blank edit of a saved row is still blank.
+function isBlankResponse(form) {
+  if (!form) return true;
+  if (form.attendance) return false;
+  if (form.recommend) return false;
+  if (Array.isArray(form.ratings) && form.ratings.some(r => r != null)) return false;
+  const free = form.free || {};
+  for (const ft of FREETEXT) {
+    if (String(free[ft.key] || "").trim()) return false;
+  }
+  if (String(form.name || "").trim()) return false;
+  if (String(form.phone || "").trim()) return false;
+  return true;
+}
 function load() {
   const stored = readFormsKey(STORAGE_KEY);
-  if (stored.status !== "corrupt") return stored.value;
+  if (stored.status !== "corrupt") {
+    deletedIds = readDeletedIds(deletedStorageKey(STORAGE_KEY));
+    return withoutDeleted(stored.value);
+  }
   // Unreadable blob: keep it. persist() writes STORAGE_RECOVERY_KEY instead
   // so a later save cannot destroy the only copy of event responses.
   storageUnreadable = true;
   alert("⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
         "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
         "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.");
-  return readFormsKey(STORAGE_RECOVERY_KEY).value;
+  deletedIds = readDeletedIds(deletedStorageKey(STORAGE_RECOVERY_KEY));
+  return withoutDeleted(readFormsKey(STORAGE_RECOVERY_KEY).value);
+}
+// Union this tab's rows with whatever is on disk now. Memory order first, then
+// ids only the other tab has. An id in deletedIds stays gone. A row this tab
+// has not changed since baseJson must not overwrite the other tab's edit; if
+// both changed, both versions are kept.
+function mergeForms(stored, memory) {
+  const storedById = new Map();
+  for (const f of stored) {
+    if (f && typeof f.id === "string") storedById.set(f.id, f);
+  }
+  const seen = new Set();
+  const out = [];
+  let conflict = false;
+  let revived = false;
+  for (const f of memory) {
+    if (!f || typeof f.id !== "string" || seen.has(f.id)) continue;
+    seen.add(f.id);
+    if (deletedIds.has(f.id)) {
+      const base = baseJson.get(f.id);
+      if (base !== undefined && JSON.stringify(f) !== base) {
+        const copy = cloneForm(f);
+        copy.id = newId();
+        out.push(copy);
+        revived = true;
+      }
+      continue;
+    }
+    const disk = storedById.get(f.id);
+    if (!disk) { out.push(f); continue; }
+    const memJson = JSON.stringify(f);
+    const diskJson = JSON.stringify(disk);
+    if (memJson === diskJson) { out.push(f); continue; }
+    const base = baseJson.get(f.id);
+    if (base === undefined || diskJson === base) { out.push(f); continue; }
+    if (memJson === base) { out.push(disk); continue; }
+    out.push(f);
+    const copy = cloneForm(disk);
+    copy.id = newId();
+    out.push(copy);
+    conflict = true;
+  }
+  for (const f of stored) {
+    if (!f || typeof f.id !== "string" || seen.has(f.id) || deletedIds.has(f.id)) continue;
+    seen.add(f.id);
+    out.push(f);
+  }
+  return { forms: out, conflict, revived };
 }
 function persist() {
   const key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
+  const delKey = deletedStorageKey(key);
+  const read = readFormsKey(key);
+  const stored = read.status === "ok" ? read.value : [];
+  for (const id of readDeletedIds(delKey)) deletedIds.add(id);
+  const merged = mergeForms(stored, forms);
+  forms = merged.forms;
   try {
+    // Record the suppression before the shrunk array, so a crash between the
+    // two writes cannot resurrect an id the next load would otherwise show.
+    localStorage.setItem(delKey, JSON.stringify([...deletedIds]));
     localStorage.setItem(key, JSON.stringify(forms));
+    baseJson = snapshotForms(forms);
   } catch (e) {
     // Quota exceeded (or storage disabled): the write failed, but `forms` is
     // still intact in memory and fully exportable. Warn the operator to export
@@ -267,6 +381,12 @@ function persist() {
     alert("⚠ Selaimen tallennustila on täynnä eikä tietoja voitu tallentaa pysyvästi.\n\n" +
           "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
           "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
+  }
+  if (merged.conflict) {
+    alert("Samaa vastausta oli muokattu toisessa välilehdessä. Molemmat versiot säilytettiin.");
+  }
+  if (merged.revived) {
+    alert("Muokattava lomake oli poistettu toisessa välilehdessä. Muutokset tallennettiin uutena lomakkeena.");
   }
   updateCount();
 }
@@ -541,6 +661,12 @@ function suggestKeydown(e, key, ta) {
 
 /* ---- Save / cancel ---- */
 function saveForm() {
+  // A fully blank form is not a response: it would inflate the headcount and
+  // the export. A second Ctrl+Enter hits this after the first save blanks current.
+  if (isBlankResponse(current)) {
+    alert("Tyhjää lomaketta ei tallenneta. Täytä vähintään yksi kohta, tai poista lomake.");
+    return;
+  }
   if (editingId !== null) {
     const idx = forms.findIndex(f => f.id === editingId);
     const saved = cloneForm(current);
@@ -558,9 +684,7 @@ function saveForm() {
     return;
   }
   const saved = cloneForm(current);
-  saved.id = (typeof crypto !== "undefined" && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+  saved.id = newId();
   forms.push(saved);
   persist();
   resetEntry();
@@ -636,6 +760,7 @@ function editForm(id) {
 }
 function deleteForm(id) {
   if (!confirm("Poistetaanko tämä lomake?")) return;
+  if (typeof id === "string" && id) deletedIds.add(id);
   forms = forms.filter(f => f.id !== id);
   if (id === editingId) resetEntry();
   persist();
@@ -643,20 +768,37 @@ function deleteForm(id) {
 }
 function clearAll() {
   if (!confirm("Poistetaanko KAIKKI " + forms.length + " lomaketta? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
+  // Explicit deletes for the ids this tab actually has. A row only another
+  // tab has written is not in this list, and the merge below keeps it.
+  for (const f of forms) {
+    if (f && typeof f.id === "string") deletedIds.add(f.id);
+  }
   forms = [];
   // The entry in progress goes too: an edit has lost its row, and a new entry
   // may hold raffle contacts the post-event wipe is meant to remove.
   resetEntry();
-  // "ALL" includes a recovery copy left by an unreadable blob; leaving it
-  // would let load() read the diverted rows back on the next boot. Wiping
-  // both keys also makes the store readable again, so persist writes to
-  // STORAGE_KEY instead of silently diverting forever.
+  // Recovery is always removed, or the next corrupt read would bring diverted
+  // rows back. A corrupt canonical blob cannot be merged, so that reset
+  // deletes it and returns later writes to STORAGE_KEY — but recovery rows
+  // this tab never had are copied across first. A readable canonical key is
+  // left for persist() to merge.
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    if (storageUnreadable) {
+      const recovered = readFormsKey(STORAGE_RECOVERY_KEY);
+      for (const id of readDeletedIds(deletedStorageKey(STORAGE_RECOVERY_KEY))) deletedIds.add(id);
+      const rows = recovered.status === "ok" ? recovered.value : [];
+      forms = rows.filter(f => f && typeof f.id === "string" && !deletedIds.has(f.id));
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(deletedStorageKey(STORAGE_KEY));
+      storageUnreadable = false;
+    }
     localStorage.removeItem(STORAGE_RECOVERY_KEY);
+    localStorage.removeItem(deletedStorageKey(STORAGE_RECOVERY_KEY));
   } catch (e) { /* storage disabled — in-memory wipe still stands */ }
-  storageUnreadable = false;
   persist();
+  if (forms.length) {
+    alert("Toisessa välilehdessä oli vastauksia, joita tässä näkymässä ei ollut. Niitä ei poistettu.");
+  }
   renderReview();
 }
 

@@ -37,12 +37,14 @@ so ids and counters stay stable across reloads.
 
 | App | Keys | Invariants |
 | --- | --- | --- |
-| palaute.html | `palaute_huippu2026_v1` + sibling `_recovery` | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). `clearAll` is the reset: it wipes both keys and clears `storageUnreadable` so later persist returns to the canonical key. |
+| palaute.html | `palaute_huippu2026_v1` + siblings `_recovery`, `_deleted`, `_recovery_deleted` | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). `persist` re-reads that key and merges by id; ids in the matching `_deleted` list stay deleted, so another tab's save cannot drop or resurrect a response. `clearAll` records this tab's ids as deleted and merges. A corrupt canonical blob is deleted; recovery rows this tab never had are written to the canonical key, then the recovery pair is removed and `storageUnreadable` clears. `saveForm` refuses a fully blank form. |
 | yatzy.html | `yatzy_players`, `yatzy_statistics` (legacy `yatzy_playerNames` migrated once); each has a `_recovery` sibling | Never clear seats or statistics on load — a stats reset is `confirmResetStats()`. Unreadable blobs use `readStore` / `writeStore` over `unreadableStores`. |
 
 A "reset" action must clear the recovery copy alongside the canonical key, or
-the diverted data is simply read back afterwards. Do not "simplify" a diverted
-write back into a direct `setItem`.
+the diverted data is simply read back afterwards. palaute's readable `clearAll`
+does not delete the canonical key first: it records the ids this tab had and
+merges, so a row only another tab has written is kept. Do not "simplify" a
+diverted write back into a direct `setItem`.
 
 A write the browser refuses (storage blocked, quota full, `localStorage` null)
 must not throw out of its caller: palaute's `persist()` and yatzy's

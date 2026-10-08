@@ -40,16 +40,17 @@ test('the page registers one document keydown listener', () => {
 
 test('Ctrl+Enter and Cmd+Enter save on the entry view', () => {
   const { run, key } = boot();
+  run('current.free.best = "Hyva"');
   const ev = key('Enter', { ctrlKey: true });
   assert.equal(run('forms.length'), 1);
   assert.equal(ev.defaultPrevented, true);
+  run('current.free.best = "Toinen"');
   key('Enter', { metaKey: true });
   assert.equal(run('forms.length'), 2);
 });
 
 // Holding Ctrl+Enter auto-repeats. Each repeat used to save another form
-// (finding #11960). A separate press still saves; whether a blank one should
-// count is a product call and is not decided here.
+// after the first save blanked the entry (finding #11960).
 test('a repeating Ctrl+Enter does not save another form', () => {
   const { run, key } = boot();
   run('current.free.best = "Hyva"');
@@ -70,9 +71,11 @@ test('plain Enter does not save', () => {
 
 test('Ctrl+Enter still saves while a raffle field has focus', () => {
   const { run, key, focusOn } = boot();
+  run('current.name = "Liisa"');
   focusOn('INPUT');
   key('Enter', { ctrlKey: true });
   assert.equal(run('forms.length'), 1);
+  assert.equal(run('forms[0].name'), 'Liisa');
 });
 
 test('Ctrl+Enter on the review view does not save', () => {
@@ -195,6 +198,7 @@ test('the save button is wired to saveForm', () => {
   const { run, entry } = boot();
   const save = entry.querySelector('#saveBtn');
   assert.equal(save.onclick, run('saveForm'));
+  run('current.recommend = "kylla"');
   save.onclick();
   assert.equal(run('forms.length'), 1);
 });
