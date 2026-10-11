@@ -9,7 +9,14 @@
      no network required. cdnjs is whitelisted in script-src; 'unsafe-inline'
      covers the page's inline script and style; no 'unsafe-eval' needed
      (ExcelJS's Function() calls are unreachable global-detection fallbacks in
-     modern browsers). object-src 'none' + base-uri 'self' add hardening. -->
+     modern browsers). object-src 'none' + base-uri 'self' add hardening.
+     The mase.fi nginx server block's sub_filter injects
+     https://static.cloudflareinsights.com/beacon.min.js just before the
+     closing head tag on every HTML response. This meta policy must keep blocking
+     that script and its reporting request — the console CSP violation is expected.
+     Allowlisting the host, or replacing this meta tag with a looser server
+     header, would run third-party code on the page that stores raffle
+     names and phone numbers. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Palaute · Työhyvinvoinnin huipulla 2026</title>

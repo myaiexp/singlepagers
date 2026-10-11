@@ -13,7 +13,7 @@
 - No build process or external dependencies (ExcelJS in palaute.html is the one optional exception)
 - All logic, styles, and markup in one file per app
 - UI is rendered via `innerHTML` template literals — every user-controlled value must go through that file's `escapeHtml()` helper
-- palaute.html's CSP allows `script-src 'self' 'unsafe-inline'` plus cdnjs (it needs ExcelJS); yatzy.html's allows `'self' 'unsafe-inline'` only. Both are `<meta http-equiv="Content-Security-Policy">` tags near the top of each file.
+- palaute.html's CSP allows `script-src 'self' 'unsafe-inline'` plus cdnjs (it needs ExcelJS); yatzy.html's allows `'self' 'unsafe-inline'` only. Both are `<meta http-equiv="Content-Security-Policy">` tags near the top of each file. The mase.fi nginx `sub_filter` injects the Cloudflare Insights beacon (`static.cloudflareinsights.com`) into every HTML response; these meta policies must keep blocking it, and the console violation is expected.
 
 ## Deploy
 
@@ -41,7 +41,9 @@ Optional raffle name and phone live in each saved form (`blankForm`), persist
 unencrypted in localStorage (typically a shared venue device), and are written
 into both the `.xlsx` and the JSON fallback export. The page promises they stay
 in this browser for the raffle — nothing may transmit form data off-device (no
-upload, no sync). After the event: export, then Tarkastele → Tyhjennä kaikki
+upload, no sync). Other pages on https://mase.fi share that localStorage and
+can read the contacts; an own origin is an export-first migration
+([`docs/storage.md`](docs/storage.md)). After the event: export, then Tarkastele → Tyhjennä kaikki
 (`clearAll`). The raffle inputs carry `autocomplete="off"`, and the note tells
 the operator that `clearAll` cannot reach the browser's autofill store (use a
 private window or clear saved form data).

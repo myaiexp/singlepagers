@@ -5,6 +5,11 @@
 // widened script-src, a dropped CSP meta, or a URL/docs version drift would
 // ship silently. Same static-markup shape as test/yatzy-bonus.test.mjs's
 // Bonus Target card vs UPPER_BONUS_THRESHOLD.
+//
+// The mase.fi nginx sub_filter injects the Cloudflare Insights beacon into
+// every HTML response. The comment beside each CSP meta must say that host
+// stays blocked (finding #12305). Allowlisting it to silence the console
+// violation would put third-party code on palaute.html.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,6 +27,19 @@ function cspContent(html, file) {
   return m[1];
 }
 
+// The comment that ends immediately before the CSP meta. An earlier comment in
+// the file must not satisfy the beacon warning — that warning has to sit where
+// someone editing the policy will read it.
+function cspComment(html, file) {
+  const metaAt = html.search(/<meta\s+http-equiv="Content-Security-Policy"/);
+  assert.ok(metaAt >= 0, `${file} must keep a CSP meta tag`);
+  const before = html.slice(0, metaAt);
+  assert.match(before, /-->\s*$/, `${file} CSP meta must sit immediately after its explanation comment`);
+  const comments = [...before.matchAll(/<!--([\s\S]*?)-->/g)];
+  assert.ok(comments.length > 0, `${file} must explain the CSP in a comment`);
+  return comments[comments.length - 1][1];
+}
+
 test("palaute.html's CSP script-src is 'self' 'unsafe-inline' plus cdnjs, exactly", () => {
   assert.equal(
     cspContent(palauteHtml, 'palaute.html'),
@@ -34,6 +52,30 @@ test("yatzy.html's CSP script-src is 'self' 'unsafe-inline' only, exactly", () =
     cspContent(yatzyHtml, 'yatzy.html'),
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'",
   );
+});
+
+// The exact CSP strings above already fail an allowlist edit. This pins the
+// warning next to the tag, so deleting the explanation and "updating the test
+// to match" a wider policy are two separate failures.
+test('CSP comments name the injected Cloudflare beacon and say it must stay blocked', () => {
+  for (const [file, html] of [['palaute.html', palauteHtml], ['yatzy.html', yatzyHtml]]) {
+    const comment = cspComment(html, file);
+    assert.match(
+      comment,
+      /static\.cloudflareinsights\.com/,
+      `${file} must name the injected beacon host`,
+    );
+    assert.match(
+      comment,
+      /must keep blocking/,
+      `${file} must say the meta CSP has to keep blocking the beacon`,
+    );
+    assert.doesNotMatch(
+      cspContent(html, file),
+      /cloudflareinsights/,
+      `${file} CSP must not allowlist the beacon`,
+    );
+  }
 });
 
 test("palaute.html's EXCELJS_URL version matches the version named in docs/exceljs.md", () => {

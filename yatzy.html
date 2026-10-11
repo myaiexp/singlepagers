@@ -5,7 +5,10 @@
     <!-- Self-contained page (no external scripts/styles/images). 'unsafe-inline'
          is required for the page's inline style block, inline style="" attributes,
          and inline onclick handlers; object-src 'none' + base-uri 'self' harden
-         against plugin/base-tag injection. -->
+         against plugin/base-tag injection. The mase.fi nginx sub_filter injects
+         https://static.cloudflareinsights.com/beacon.min.js just before the
+         closing head tag. This policy must keep blocking that script and its report;
+         the console CSP violation is expected. Do not allowlist the host. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Finnish Yatzy - 2 Players</title>

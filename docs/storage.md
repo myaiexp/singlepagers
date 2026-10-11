@@ -10,6 +10,14 @@ operator to export; yatzy does not write fresh seat ids over it. A palaute
 deleted-list that fails to parse diverts to its own `_recovery` sibling
 (`…_deleted_recovery`).
 
+`palaute_huippu2026_v1` holds the raffle name and phone unencrypted.
+localStorage is the origin, not the path, so every other page on
+https://mase.fi can read that key, and so can a script-injection bug in one
+of them. Moving palaute to its own origin orphans any rows still stored on
+this origin. Export, then clear, as a deliberate migration — not an in-place
+change. Whether the venue device for *Työhyvinvoinnin huipulla 2026* still
+holds the key cannot be checked from this repo.
+
 | App | Keys | Invariants |
 | --- | --- | --- |
 | palaute.html | `palaute_huippu2026_v1` + siblings `_recovery`, `_deleted`, `_recovery_deleted`, and `_deleted_recovery` when that list fails to parse | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). A `_deleted` list that fails to parse is not overwritten; new deletes go to `…_deleted_recovery`. If the forms recovery blob itself fails to parse, new rows stay in memory. `persist` re-reads the writable key and merges by id; ids in the matching deleted-list stay deleted, so another tab's save cannot drop or resurrect a response. `clearAll` records this tab's ids as deleted and merges. A corrupt canonical blob is deleted on that explicit wipe; recovery rows this tab never had are written to the canonical key, then the recovery pair is removed and `storageUnreadable` clears. `saveForm` refuses a fully blank form. |
