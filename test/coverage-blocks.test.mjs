@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import { summarize } from './coverage.mjs';
 import { functionsWithBlocks, runMain, runShaped, writeDir } from './coverage-fixture.mjs';
 
-test('main exits 0 at the measured block rates (423/431 and 310/329)', () => {
+test('main exits 0 at the measured block rates (423/431 and 315/333)', () => {
   const dir = writeDir({
     'coverage-a.json': [
       { url: 'palaute.html#script', functions: functionsWithBlocks(160, 160, 423, 431) },
-      { url: 'yatzy.html#script', functions: functionsWithBlocks(104, 109, 310, 329) },
+      { url: 'yatzy.html#script', functions: functionsWithBlocks(105, 109, 315, 333) },
     ],
   });
   const { code, out } = runMain(dir);
@@ -23,8 +23,8 @@ test('a one-block palaute drop fails while every function was entered (422/431 <
   assert.match(err, /blocks ≥ 98%/);
 });
 
-test('a one-block yatzy drop fails while function entry still clears its floor (309/329 < 94)', () => {
-  const { code, out, err } = runShaped('yatzy.html', 104, 109, 309, 329);
+test('yatzy blocks at 309/329 fail while function entry still clears its floor', () => {
+  const { code, out, err } = runShaped('yatzy.html', 105, 109, 309, 329);
   assert.equal(code, 1);
   assert.match(out, /yatzy\.html .*FAIL/);
   assert.match(err, /blocks ≥ 94%/);

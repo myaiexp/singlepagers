@@ -64,5 +64,5 @@ runs each page's inline script under `node:vm` against a fake DOM, with shared
 `dispatch`, and page paths in `test/pages.mjs`. Coverage gate, from an empty
 `.coverage/`: `NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs`
 (floors in `test/coverage.mjs`: palaute functions 100% / blocks 98%, yatzy
-functions 95% / blocks 94%). Harness, coverage rationale, and the manual
+functions 96% / blocks 94%). Harness, coverage rationale, and the manual
 `test/smoke.html` check: [`docs/testing.md`](docs/testing.md).

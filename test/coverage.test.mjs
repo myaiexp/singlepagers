@@ -11,19 +11,22 @@ import { coverageCli, fn, mix, runAt, runMain, writeDir } from './coverage-fixtu
 test('percent rounds to one decimal', () => {
   assert.equal(percent(160, 160), 100);
   assert.equal(percent(159, 160), 99.4);
+  assert.equal(percent(105, 109), 96.3);
   assert.equal(percent(104, 109), 95.4);
   assert.equal(percent(103, 109), 94.5);
   assert.equal(percent(423, 431), 98.1);
   assert.equal(percent(422, 431), 97.9);
   assert.equal(percent(309, 328), 94.2);
+  assert.equal(percent(315, 333), 94.6);
+  assert.equal(percent(314, 333), 94.3);
   assert.equal(percent(310, 329), 94.2);
   assert.equal(percent(309, 329), 93.9);
   assert.equal(percent(0, 0), 0);
 });
 
-test('FLOORS pin palaute at 100 and yatzy at 95', () => {
+test('FLOORS pin palaute at 100 and yatzy at 96', () => {
   assert.equal(FLOORS['palaute.html'], 100);
-  assert.equal(FLOORS['yatzy.html'], 95);
+  assert.equal(FLOORS['yatzy.html'], 96);
 });
 
 test('BLOCK_FLOORS pin palaute at 98 and yatzy at 94', () => {
@@ -86,10 +89,10 @@ test('main exits 1 below the floor', () => {
   assert.match(err, /below floor/);
 });
 
-test('main exits 0 at the measured rates (160/160 and 104/109)', () => {
+test('main exits 0 at the measured rates (160/160 and 105/109)', () => {
   const dir = writeDir({
     'coverage-a.json': [
-      { url: 'yatzy.html#script', functions: mix(104, 109, 'y') },
+      { url: 'yatzy.html#script', functions: mix(105, 109, 'y') },
       { url: 'palaute.html#script', functions: mix(160, 160, 'p') },
     ],
   });
@@ -99,8 +102,8 @@ test('main exits 0 at the measured rates (160/160 and 104/109)', () => {
   assert.match(out, /palaute\.html/);
 });
 
-test('main exits 1 on a one-function yatzy drop (103/109 < 95)', () => {
-  const { code, out } = runAt('yatzy.html', 103, 109);
+test('main exits 1 on a one-function yatzy drop (104/109 < 96)', () => {
+  const { code, out } = runAt('yatzy.html', 104, 109);
   assert.equal(code, 1);
   assert.match(out, /yatzy\.html .*FAIL/);
 });

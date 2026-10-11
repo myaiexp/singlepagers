@@ -70,7 +70,7 @@ export function runMain(dir) {
 
 // One page at `[entered, total]` functions (one range each), the other at its measured rate.
 export function runAt(page, entered, total) {
-  const rates = { 'yatzy.html': [104, 109], 'palaute.html': [160, 160], [page]: [entered, total] };
+  const rates = { 'yatzy.html': [105, 109], 'palaute.html': [160, 160], [page]: [entered, total] };
   return runMain(writeDir({
     'coverage-a.json': Object.entries(rates).map(([p, [e, t]]) =>
       ({ url: `${p}#script`, functions: mix(e, t, p[0]) })),
@@ -80,7 +80,7 @@ export function runAt(page, entered, total) {
 // One page at a function rate and a block rate; the other page stays at its measured function rate.
 export function runShaped(page, fnEntered, fnTotal, blockCovered, blockTotal) {
   const other = page === 'yatzy.html' ? 'palaute.html' : 'yatzy.html';
-  const otherFn = other === 'yatzy.html' ? [104, 109] : [160, 160];
+  const otherFn = other === 'yatzy.html' ? [105, 109] : [160, 160];
   return runMain(writeDir({
     'coverage-a.json': [
       {

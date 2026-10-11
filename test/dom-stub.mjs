@@ -107,6 +107,7 @@ export function createDocument() {
     querySelectorAll(selector) {
       // No HTML is parsed, so reference-panel tiles do not exist. The default
       // 5-node list makes syncReferencePanel read catScores[NaN] and abort init.
+      // yatzy-reference.test.mjs parses the real tiles and installs them.
       if (String(selector).includes('reference-item')) return [];
       return makeNodeList();
     },

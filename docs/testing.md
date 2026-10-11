@@ -15,7 +15,11 @@ as `loadError`.
 
 - **Default DOM**: every `getElementById` / `querySelector` returns a new
   forgiving element, and `classList.contains` is always false. Most tests are
-  written against that.
+  written against that. `querySelectorAll` of a selector containing
+  `reference-item` returns `[]`: a generic list makes yatzy's
+  `syncReferencePanel` read `catScores[NaN]` during init.
+  `test/yatzy-reference.test.mjs` parses those tiles from the markup and
+  installs them on that selector before the page script runs.
 - **Patches** (call from `patch`; each returns the record it keeps):
   - `stableElements(sandbox, { method, recordClasses, descendants })` returns
     one element per id (or per key of `method`, e.g. `querySelector`).

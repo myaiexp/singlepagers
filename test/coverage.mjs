@@ -7,17 +7,18 @@ import { fileURLToPath } from 'node:url';
 export const PAGES = ['palaute.html', 'yatzy.html'];
 
 // Current measured function-entry rate, rounded down: palaute 160/160 = 100%,
-// yatzy 104/109 = 95.4%. A ratchet, not a target: raise it when coverage rises.
-// A one-function drop fails both (palaute 159/160 = 99.4%, yatzy 103/109 = 94.5%).
+// yatzy 105/109 = 96.3%. A ratchet, not a target: raise it when coverage rises.
+// A one-function drop fails both (palaute 159/160 = 99.4%, yatzy 104/109 = 95.4%).
 export const FLOORS = {
   'palaute.html': 100,
-  'yatzy.html': 95,
+  'yatzy.html': 96,
 };
 
 // Current measured block rate, rounded down: palaute 423/431 = 98.1%,
-// yatzy 310/329 = 94.2%. A one-block drop fails both
-// (palaute 422/431 = 97.9%, yatzy 309/329 = 93.9%). V8 sometimes omits one
-// covered range in yatzy calculateScore (309/328); that snapshot rounds down to 94 too.
+// yatzy 315/333 = 94.6%. A one-block palaute drop fails (422/431 = 97.9%).
+// Yatzy stays at 94: one block under the measurement (314/333 = 94.3%) still
+// clears, and 309/329 = 93.9% does not. V8 sometimes omits one covered range
+// in yatzy calculateScore; that snapshot stays above this floor.
 export const BLOCK_FLOORS = {
   'palaute.html': 98,
   'yatzy.html': 94,
