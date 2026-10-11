@@ -779,9 +779,10 @@
     <script>
         // Game state (dice/scores) lives in JS variables and resets naturally on
         // reload via init(). Player seats (id + display name) and statistics
-        // persist in localStorage (keys: yatzy_players, yatzy_statistics; legacy
-        // yatzy_playerNames is migrated once) and must NOT be cleared here —
-        // stats reset is an explicit user action in confirmResetStats().
+        // persist in localStorage (keys: yatzy_players, yatzy_statistics). Legacy
+        // yatzy_playerNames is read only when no seats exist, and
+        // savePlayersToStorage still writes it on every seat save. Do not clear
+        // seats or statistics here — a stats reset is confirmResetStats().
 
         // Naming: `seatNo` is a seat number, 1 | 2; `seat` is that seat's
         // { id, name } object from `players` (seatFor). Stats are keyed by seat.id.
@@ -916,7 +917,7 @@
 
         const STATS_KEY = 'yatzy_statistics';
         const PLAYERS_KEY = 'yatzy_players';
-        const LEGACY_NAMES_KEY = 'yatzy_playerNames'; // pre-seat-id names, migrated once
+        const LEGACY_NAMES_KEY = 'yatzy_playerNames'; // read when no seats exist; rewritten on every seat save
         const RECOVERY_SUFFIX = '_recovery';
 
         // Keys whose stored blob could not be read this session. An unreadable blob

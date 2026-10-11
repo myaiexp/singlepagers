@@ -22,34 +22,17 @@ post-receive hook → `forgejo-deploy singlepagers <branch>`. The usual path is
 `deploy`, which lands the worktree on `master` and pushes to every configured
 remote. That includes `github` (public mirror, github.com/myaiexp/singlepagers);
 only origin's hook publishes pages. The hook checks the pushed ref out to a
-temp dir and copies **top-level** `*.html` into `/var/www/html/`
-(`cp "$TMPDIR"/*.html`). `test/` is not copied, so `test/smoke.html` is not
-published. Confirm a deploy by fetching the two live URLs above;
+temp dir and copies each top-level `*.html` into `/var/www/html/`
+(chowned to `www-data`, mode 644). `test/` is not copied, so
+`test/smoke.html` is not published. Confirm a deploy by fetching the two live URLs above;
 `https://mase.fi/test/smoke.html` must 404.
 
 ## Storage
 
-Browser localStorage is the only data store. A blob that fails to parse is
-damaged, not absent — writing over it destroys the last chance of recovery.
-Both apps mark such a key unreadable, tell the user once, and divert later
-writes to `<key>_recovery`, which is read back in the canonical key's place
-so ids and counters stay stable across reloads.
-
-| App | Keys | Invariants |
-| --- | --- | --- |
-| palaute.html | `palaute_huippu2026_v1` + siblings `_recovery`, `_deleted`, `_recovery_deleted` | Never overwrite a blob that failed to parse (`load` sets `storageUnreadable`; `persist` writes `STORAGE_RECOVERY_KEY`). `persist` re-reads that key and merges by id; ids in the matching `_deleted` list stay deleted, so another tab's save cannot drop or resurrect a response. `clearAll` records this tab's ids as deleted and merges. A corrupt canonical blob is deleted; recovery rows this tab never had are written to the canonical key, then the recovery pair is removed and `storageUnreadable` clears. `saveForm` refuses a fully blank form. |
-| yatzy.html | `yatzy_players`, `yatzy_statistics` (legacy `yatzy_playerNames` migrated once); each has a `_recovery` sibling | Never clear seats or statistics on load — a stats reset is `confirmResetStats()`. Unreadable blobs use `readStore` / `writeStore` over `unreadableStores`. |
-
-A "reset" action must clear the recovery copy alongside the canonical key, or
-the diverted data is simply read back afterwards. palaute's readable `clearAll`
-does not delete the canonical key first: it records the ids this tab had and
-merges, so a row only another tab has written is kept. Do not "simplify" a
-diverted write back into a direct `setItem`.
-
-A write the browser refuses (storage blocked, quota full, `localStorage` null)
-must not throw out of its caller: palaute's `persist()` and yatzy's
-`writeStore` / `clearStore` catch it, alert, and the page keeps working in
-memory. yatzy's `endGame` shows the game-over overlay before writing stats.
+Browser localStorage is the only data store. Never overwrite a blob that
+failed to parse — divert later writes to `<key>_recovery`, and clear that
+copy together with the canonical key on reset.
+Details: [`docs/storage.md`](docs/storage.md).
 
 ## Data handling (`palaute.html`)
 

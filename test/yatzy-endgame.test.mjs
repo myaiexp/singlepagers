@@ -1,7 +1,6 @@
-// endGame winner derivation (finding #8957): updateGameStatistics is well
-// tested with a literal winner, but nothing mapped a pair of filled scorecards
-// through the real endGame() comparison onto wins/losses/draws. Flipping
-// `p1Total > p2Total` to `<` used to pass the whole suite.
+// endGame winner derivation (finding #8957): maps two filled scorecards
+// through the real endGame() `p1.score > p2.score` comparison onto
+// wins/losses/draws — flipping it to `<` used to pass the whole suite.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

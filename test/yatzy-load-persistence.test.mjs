@@ -4,9 +4,10 @@
 // keys on every page load and making the Statistics modal effectively useless.
 //
 // After audit #2963, seats live under yatzy_players (id + name) and stats are
-// keyed by seat id. Legacy yatzy_playerNames + name-keyed stats are migrated
-// once on load — so "survive" means names/stat counters still present, not
-// that the raw storage blob is byte-identical.
+// keyed by seat id. Name-keyed stats are migrated once, on a load with no
+// saved seats. yatzy_playerNames is read only then, but savePlayersToStorage
+// rewrites it on every seat save — so "survive" means the names and stat
+// counters are still present, not that the raw storage blob is byte-identical.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
