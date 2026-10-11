@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, captureCreated } from './dom-stub.mjs';
+import { loadPage, captureCreated, stableElements, dispatch } from './dom-stub.mjs';
 import { PALAUTE_PATH } from './pages.mjs';
 
 const KEY = 'best';
@@ -79,6 +79,66 @@ test('hideSuggest drops suggestState even when no box is in the DOM', () => {
   const { run } = loadUi();
   seedState(run);
   run(`hideSuggest(${JSON.stringify(KEY)});`);
+  assert.equal(run(`suggestState[${JSON.stringify(KEY)}]`), undefined);
+});
+
+// The dropdown is created, not parsed out of #entry. stableElements keeps the
+// live textarea; captureCreated({ stable: true }) keeps the nodes showSuggest
+// bound. The stub does not parse data-i out of innerHTML, so the test sets
+// dataset.i the way the markup would have — the handler reads it at event time.
+test('mousedown on a suggestion prevents default and accepts that item', () => {
+  let byId;
+  let created;
+  const { run } = loadPage(PALAUTE_PATH, {
+    patch(sb) {
+      byId = stableElements(sb, { descendants: true });
+      created = captureCreated(sb, undefined, { stable: true });
+    },
+  });
+  run(`forms = ['musiikki', 'musiikki', 'musiikki', 'ruoka', 'ruoka', 'sää'].map(t => {
+         const f = blankForm();
+         f.free.best = t;
+         return f;
+       });
+       current = blankForm();
+       renderEntry();`);
+  const ta = byId.get('entry').querySelector('#ft-best');
+  dispatch(ta, 'focus');
+  const box = created.find(c => c.el.className === 'suggest')?.el;
+  assert.ok(box, 'focus opens a suggestion box');
+  const item = box.querySelectorAll('.suggest-item')[0];
+  item.dataset.i = '0';
+  const expected = run(`suggestState[${JSON.stringify(KEY)}].items[0].text`);
+  const event = dispatch(item, 'mousedown');
+  assert.equal(event.defaultPrevented, true, 'mousedown keeps the textarea focused');
+  assert.equal(ta.value, expected);
+  assert.equal(run(`current.free[${JSON.stringify(KEY)}]`), expected);
+  assert.equal(run(`suggestState[${JSON.stringify(KEY)}]`), undefined,
+    'accepting the pick dismisses the dropdown');
+});
+
+test('acceptSuggest ignores an index the list does not have', () => {
+  const { run } = loadUi();
+  seedState(run, { active: 0 });
+  run(`__ta.value = 'keep'; current.free[${JSON.stringify(KEY)}] = 'keep';`);
+  run(`acceptSuggest(${JSON.stringify(KEY)}, __ta, 99);`);
+  assert.equal(run('__ta.value'), 'keep');
+  assert.equal(run(`current.free[${JSON.stringify(KEY)}]`), 'keep');
+  assert.equal(run(`suggestState[${JSON.stringify(KEY)}].items.length`), ITEMS.length,
+    'a stale index does not dismiss the dropdown');
+});
+
+test('suggestKeydown does nothing when that key has no suggestion list', () => {
+  const { run } = loadUi();
+  run(`current = blankForm();
+       globalThis.__ta = { value: 'keep' };
+       globalThis.__pd = false;`);
+  run(`suggestKeydown({
+         key: 'ArrowDown',
+         preventDefault() { globalThis.__pd = true; },
+       }, ${JSON.stringify(KEY)}, __ta);`);
+  assert.equal(run('__pd'), false);
+  assert.equal(run('__ta.value'), 'keep');
   assert.equal(run(`suggestState[${JSON.stringify(KEY)}]`), undefined);
 });
 

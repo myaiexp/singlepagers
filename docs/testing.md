@@ -27,7 +27,11 @@ as `loadError`.
     fire what the page bound (`onclick`, `addEventListener`), to observe the
     entry/review `hidden` toggle, or to check focus landed on the live render.
   - `captureAlerts(sandbox)` records `alert()` messages;
-    `captureCreated(sandbox, onCreate)` records `document.createElement`.
+    `captureCreated(sandbox, onCreate, { stable })` records
+    `document.createElement`. `stable: true` keeps that element's
+    `querySelector` / `querySelectorAll` results until its `innerHTML`
+    changes, so a test can dispatch on nodes the page just bound. The
+    suggestion dropdown is created, not parsed from `#entry`.
   - `captureDownloads(sandbox)` installs recording `Blob` / `URL`: one
     `{ blob, type, text, url, revoked }` per `createObjectURL`.
   - `queueTimers(sandbox)` returns `{ timers, flush }`: `setTimeout` queues,

@@ -215,14 +215,14 @@ export function captureAlerts(sandbox) {
   return alerts;
 }
 
-// Record every document.createElement call as { tag, el }. `onCreate(el, tag)`
-// runs before the element is handed to the page, so a test can stub a method
-// (an anchor's click) that the page calls straight away. Returns the array.
-export function captureCreated(sandbox, onCreate) {
+// Record every document.createElement as { tag, el }. `onCreate(el, tag)` runs
+// before the page receives it. `stable: true` keeps querySelectorAll results
+// until innerHTML changes, so a test can dispatch on nodes the page just bound.
+export function captureCreated(sandbox, onCreate, { stable = false } = {}) {
   const created = [];
   const create = sandbox.document.createElement.bind(sandbox.document);
   sandbox.document.createElement = (tag) => {
-    const el = create(tag);
+    const el = stable ? makeElement({ stable: true }) : create(tag);
     if (typeof onCreate === 'function') onCreate(el, tag);
     created.push({ tag, el });
     return el;

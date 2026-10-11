@@ -4,12 +4,14 @@
 // next save clobber the unreadable blob — losing player statistics and seat ids
 // for good. Sibling of the palaute finding fixed in 84d38f7; same remedy, so the
 // diverted writes land under "<key>_recovery" and are read back on the next load.
+// A recovery value that itself fails to parse is not a write target (finding
+// #12571): initSeats must not replace it with fresh seat ids.
 //
 // Same no-deps node:vm + stub-DOM harness as the other yatzy tests.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadPage, stableElements } from './dom-stub.mjs';
+import { loadPage, stableElements, captureAlerts } from './dom-stub.mjs';
 import { YATZY_PATH } from './pages.mjs';
 
 const CORRUPT = '{"player1": {"id": "seat-1"'; // truncated JSON — throws on parse
@@ -76,6 +78,81 @@ test('a corrupt players blob is never overwritten on load', () => {
     'the unreadable seat blob must survive intact');
   const recovered = JSON.parse(ls.getItem('yatzy_players_recovery') || 'null');
   assert.ok(recovered?.player1?.id, 'fresh seats were written to a recovery copy');
+});
+
+test('a truncated players recovery blob is not replaced with fresh seat ids', () => {
+  const recovery = '{"player1":{"id":"seat-a"';
+  let alerts;
+  const { sandbox, run, loadError } = loadPage(YATZY_PATH, {
+    seed: { yatzy_players: CORRUPT, yatzy_players_recovery: recovery },
+    patch(sb) { alerts = captureAlerts(sb); },
+  });
+  assert.equal(loadError, undefined, loadError && loadError.stack);
+  const ls = sandbox.localStorage;
+  assert.equal(ls.getItem('yatzy_players'), CORRUPT);
+  assert.equal(ls.getItem('yatzy_players_recovery'), recovery,
+    'initSeats must not write seats onto a recovery key that failed to parse');
+  assert.ok(alerts.some(a => /Seat ids could not be restored/.test(a)));
+  assert.equal(alerts.some(a => /saved separately/.test(a)), false,
+    'the warning must not claim the damaged recovery copy was written');
+  assert.equal(alerts.filter(a => /could not be read/.test(a)).length, 1);
+  assert.ok(run('players.player1.id'), 'the table still has in-memory seats');
+  run('savePlayersToStorage()');
+  assert.equal(ls.getItem('yatzy_players_recovery'), recovery);
+});
+
+test('a wrong-shaped players recovery blob is not overwritten on load', () => {
+  const recovery = '[1,2,3]';
+  const { ls } = loadWith({
+    yatzy_players: CORRUPT,
+    yatzy_players_recovery: recovery,
+  });
+  assert.equal(ls.getItem('yatzy_players'), CORRUPT);
+  assert.equal(ls.getItem('yatzy_players_recovery'), recovery);
+});
+
+test('a truncated statistics recovery blob survives the next game', () => {
+  const recovery = '{"seat-1":{"gamesPlayed":';
+  const { ls, run } = loadWith({
+    yatzy_statistics: CORRUPT,
+    yatzy_statistics_recovery: recovery,
+  });
+  playOneGame(run);
+  assert.equal(ls.getItem('yatzy_statistics'), CORRUPT);
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), recovery,
+    'a game must not replace a statistics recovery copy that failed to parse');
+});
+
+test('reset still clears a corrupt statistics recovery so the next game can save', () => {
+  const recovery = '{"seat-1":';
+  const { sandbox, run } = loadPage(YATZY_PATH, {
+    seed: { yatzy_statistics: CORRUPT, yatzy_statistics_recovery: recovery },
+    patch(s) { s.confirm = () => true; },
+  });
+  const ls = sandbox.localStorage;
+  playOneGame(run);
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), recovery,
+    'the game left the damaged recovery copy alone');
+  run('confirmResetStats()');
+  assert.equal(ls.getItem('yatzy_statistics'), null);
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
+  assert.equal(run('unreadableRecovery.has(STATS_KEY)'), false,
+    'reset makes the store writable again');
+  playOneGame(run);
+  assert.ok(JSON.parse(ls.getItem('yatzy_statistics') || 'null'),
+    'the next game lands on the canonical key');
+  assert.equal(ls.getItem('yatzy_statistics_recovery'), null);
+});
+
+test('a truncated legacy-names recovery blob is not replaced when names cannot be read', () => {
+  const legacy = '{"player1": "Ali';
+  const recovery = '{"player1":"Ali';
+  const { ls } = loadWith({
+    yatzy_playerNames: legacy,
+    yatzy_playerNames_recovery: recovery,
+  });
+  assert.equal(ls.getItem('yatzy_playerNames'), legacy);
+  assert.equal(ls.getItem('yatzy_playerNames_recovery'), recovery);
 });
 
 test('seat ids stay stable across reloads while the players blob is corrupt', () => {

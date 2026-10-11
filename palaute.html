@@ -202,11 +202,32 @@ const FREETEXT = [
   { key: "open",    question: "Vapaa palaute tai kehitysidea" },
 ];
 
+// Above `let forms = load()`. That call runs during script startup, so a
+// const below it would still be in the temporal dead zone.
+const CANONICAL_FORMS_MSG =
+  "⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+  "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
+  "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.";
+const RECOVERY_FORMS_MSG =
+  "⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+  "Sekä alkuperäinen tallenne että palautuskopio ovat vioittuneet, eikä kumpaakaan " +
+  "ylikirjoiteta. Tässä välilehdessä syötetyt lomakkeet pysyvät vain muistissa. " +
+  "Vie ne heti (Vie Excel) — ne katoavat, jos suljet välilehden.";
+const TOMBSTONE_MSG =
+  "⚠ Poistolistaa ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+  "Alkuperäistä poistolistaa ei ylikirjoiteta. Uudet poistot tallennetaan " +
+  "erilliseen palautuskopioon, jotta poistettu lomake ei palaa toisen välilehden tallennuksesta.";
+const TOMBSTONE_COPY_MSG =
+  "⚠ Poistolistan palautuskopiota ei voitu lukea.\n\n" +
+  "Sitä ei ylikirjoiteta. Tässä välilehdessä tehdyt poistot pysyvät vain muistissa. " +
+  "Vie tiedot (Vie Excel) ennen välilehden sulkemista.";
+
 /* ------------------------------------------------------------------ *
  * State
  * ------------------------------------------------------------------ */
 let storageUnreadable = false; // true when STORAGE_KEY holds a blob load() could not use
 let deletedIds = new Set(); // ids removed on purpose; a merge must not bring them back
+const warnedStorage = new Set(); // keys we already told the operator we will not overwrite
 let forms = load();        // array of saved form objects
 let baseJson = snapshotForms(forms); // JSON per id at the last successful read or write
 let current = blankForm(); // form being entered/edited
@@ -259,21 +280,60 @@ function snapshotForms(list) {
   }
   return m;
 }
-function readDeletedIds(key) {
+// Same shape as readFormsKey, for a deleted-id list. A non-array is corrupt:
+// treating it as "nobody was deleted" and writing that back drops the only
+// record of the delete, including raffle name and phone.
+function warnStorage(key, message) {
+  if (warnedStorage.has(key)) return;
+  warnedStorage.add(key);
+  alert(message);
+}
+function readDeletedKey(key) {
   let raw;
   try {
     raw = localStorage.getItem(key);
   } catch (e) {
-    return new Set();
+    return { status: "absent", ids: new Set() };
   }
-  if (!raw) return new Set();
+  if (raw === null) return { status: "absent", ids: new Set() };
+  let data;
   try {
-    const data = JSON.parse(raw);
-    if (!Array.isArray(data)) return new Set();
-    return new Set(data.filter(id => typeof id === "string" && id));
+    data = JSON.parse(raw);
   } catch (e) {
-    return new Set();
+    return { status: "corrupt", ids: new Set() };
   }
+  if (!Array.isArray(data)) return { status: "corrupt", ids: new Set() };
+  return { status: "ok", ids: new Set(data.filter(id => typeof id === "string" && id)) };
+}
+function deletedRecoveryKey(delKey) {
+  return delKey + "_recovery";
+}
+// Union every id we can actually read. A corrupt list contributes nothing and
+// is not treated as empty — the bytes stay where they are.
+function absorbDeleted(delKey) {
+  const primary = readDeletedKey(delKey);
+  if (primary.status === "corrupt") warnStorage(delKey, TOMBSTONE_MSG);
+  else for (const id of primary.ids) deletedIds.add(id);
+  const copyKey = deletedRecoveryKey(delKey);
+  const copy = readDeletedKey(copyKey);
+  if (copy.status === "corrupt") warnStorage(copyKey, TOMBSTONE_COPY_MSG);
+  else for (const id of copy.ids) deletedIds.add(id);
+}
+// Write the id set without setItem on a list that failed to parse. A damaged
+// list diverts to its own recovery key. If that copy is damaged too, skip the
+// write. An empty set does not create a new key — an empty list would look
+// like "nobody was deleted" and hide the damaged bytes from a later repair.
+function writeDeleted(delKey) {
+  const payload = JSON.stringify([...deletedIds]);
+  if (readDeletedKey(delKey).status !== "corrupt") {
+    localStorage.setItem(delKey, payload);
+    return;
+  }
+  const copyKey = deletedRecoveryKey(delKey);
+  const copy = readDeletedKey(copyKey);
+  if (copy.status === "corrupt") return;
+  if (copy.status === "absent" && deletedIds.size === 0) return;
+  localStorage.setItem(copyKey, payload);
 }
 function withoutDeleted(list) {
   return list.filter(f => !f || typeof f.id !== "string" || !deletedIds.has(f.id));
@@ -301,17 +361,24 @@ function isBlankResponse(form) {
 function load() {
   const stored = readFormsKey(STORAGE_KEY);
   if (stored.status !== "corrupt") {
-    deletedIds = readDeletedIds(deletedStorageKey(STORAGE_KEY));
+    absorbDeleted(deletedStorageKey(STORAGE_KEY));
     return withoutDeleted(stored.value);
   }
-  // Unreadable blob: keep it. persist() writes STORAGE_RECOVERY_KEY instead
-  // so a later save cannot destroy the only copy of event responses.
+  // Unreadable blob: keep it. persist() writes STORAGE_RECOVERY_KEY instead,
+  // unless that copy failed to parse too — then the rows stay in memory and
+  // the operator is told to export. A deleted-list that failed to parse is
+  // kept the same way; new deletes go to a sibling recovery key.
   storageUnreadable = true;
-  alert("⚠ Tallennettuja vastauksia ei voitu lukea (selaimen tallenne on vioittunut).\n\n" +
-        "Alkuperäistä tallennetta ei ylikirjoiteta. Voit jatkaa syöttöä ja viedä " +
-        "tiedot (Vie Excel). Uudet lomakkeet tallennetaan erilliseen palautuskopioon.");
-  deletedIds = readDeletedIds(deletedStorageKey(STORAGE_RECOVERY_KEY));
-  return withoutDeleted(readFormsKey(STORAGE_RECOVERY_KEY).value);
+  const recovered = readFormsKey(STORAGE_RECOVERY_KEY);
+  const delKey = deletedStorageKey(STORAGE_RECOVERY_KEY);
+  if (recovered.status === "corrupt") {
+    warnStorage(STORAGE_RECOVERY_KEY, RECOVERY_FORMS_MSG);
+    absorbDeleted(delKey);
+    return [];
+  }
+  warnStorage(STORAGE_KEY, CANONICAL_FORMS_MSG);
+  absorbDeleted(delKey);
+  return withoutDeleted(recovered.value);
 }
 // Union this tab's rows with whatever is on disk now. Memory order first, then
 // ids only the other tab has. An id in deletedIds stays gone. A row this tab
@@ -361,19 +428,41 @@ function mergeForms(stored, memory) {
   return { forms: out, conflict, revived };
 }
 function persist() {
-  const key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
+  let key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
+  let read = readFormsKey(key);
+  // A blob that failed to parse is not a write target. Canonical damage diverts
+  // to the recovery key; if that copy failed too, the rows stay in memory.
+  if (read.status === "corrupt") {
+    if (key === STORAGE_KEY) {
+      storageUnreadable = true;
+      key = STORAGE_RECOVERY_KEY;
+      read = readFormsKey(key);
+      warnStorage(read.status === "corrupt" ? key : STORAGE_KEY,
+        read.status === "corrupt" ? RECOVERY_FORMS_MSG : CANONICAL_FORMS_MSG);
+    } else {
+      warnStorage(key, RECOVERY_FORMS_MSG);
+    }
+  }
   const delKey = deletedStorageKey(key);
-  const read = readFormsKey(key);
-  const stored = read.status === "ok" ? read.value : [];
-  for (const id of readDeletedIds(delKey)) deletedIds.add(id);
-  const merged = mergeForms(stored, forms);
-  forms = merged.forms;
+  absorbDeleted(delKey);
+  let conflict = false;
+  let revived = false;
+  if (read.status !== "corrupt") {
+    const stored = read.status === "ok" ? read.value : [];
+    const merged = mergeForms(stored, forms);
+    forms = merged.forms;
+    conflict = merged.conflict;
+    revived = merged.revived;
+  }
   try {
     // Record the suppression before the shrunk array, so a crash between the
     // two writes cannot resurrect an id the next load would otherwise show.
-    localStorage.setItem(delKey, JSON.stringify([...deletedIds]));
-    localStorage.setItem(key, JSON.stringify(forms));
-    baseJson = snapshotForms(forms);
+    // writeDeleted refuses a list that failed to parse.
+    writeDeleted(delKey);
+    if (read.status !== "corrupt") {
+      localStorage.setItem(key, JSON.stringify(forms));
+      baseJson = snapshotForms(forms);
+    }
   } catch (e) {
     // Quota exceeded (or storage disabled): the write failed, but `forms` is
     // still intact in memory and fully exportable. Warn the operator to export
@@ -382,10 +471,10 @@ function persist() {
           "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
           "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
   }
-  if (merged.conflict) {
+  if (conflict) {
     alert("Samaa vastausta oli muokattu toisessa välilehdessä. Molemmat versiot säilytettiin.");
   }
-  if (merged.revived) {
+  if (revived) {
     alert("Muokattava lomake oli poistettu toisessa välilehdessä. Muutokset tallennettiin uutena lomakkeena.");
   }
   updateCount();
@@ -785,15 +874,25 @@ function clearAll() {
   try {
     if (storageUnreadable) {
       const recovered = readFormsKey(STORAGE_RECOVERY_KEY);
-      for (const id of readDeletedIds(deletedStorageKey(STORAGE_RECOVERY_KEY))) deletedIds.add(id);
+      // Absorb before remove, so a readable diverted delete-list is not thrown
+      // away with the corrupt copy it was standing in for.
+      absorbDeleted(deletedStorageKey(STORAGE_RECOVERY_KEY));
+      absorbDeleted(deletedStorageKey(STORAGE_KEY));
       const rows = recovered.status === "ok" ? recovered.value : [];
       forms = rows.filter(f => f && typeof f.id === "string" && !deletedIds.has(f.id));
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(deletedStorageKey(STORAGE_KEY));
+      localStorage.removeItem(deletedRecoveryKey(deletedStorageKey(STORAGE_KEY)));
       storageUnreadable = false;
+      warnedStorage.delete(STORAGE_KEY);
     }
+    // Explicit wipe. This is the one place a corrupt forms blob is removed;
+    // persist() never setItems over one. A corrupt deleted-list on a readable
+    // store is not in this set — that one stays for writeDeleted to divert.
     localStorage.removeItem(STORAGE_RECOVERY_KEY);
     localStorage.removeItem(deletedStorageKey(STORAGE_RECOVERY_KEY));
+    localStorage.removeItem(deletedRecoveryKey(deletedStorageKey(STORAGE_RECOVERY_KEY)));
+    warnedStorage.delete(STORAGE_RECOVERY_KEY);
   } catch (e) { /* storage disabled — in-memory wipe still stands */ }
   persist();
   if (forms.length) {

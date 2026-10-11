@@ -925,7 +925,10 @@
         // "<key>_recovery" rather than overwriting it, and readStore reads that copy
         // in its place — otherwise every reload would fork fresh seat ids and start
         // the counters over. Same remedy as palaute.html's STORAGE_RECOVERY_KEY.
+        // unreadableRecovery: that recovery value failed to parse too. writeStore
+        // leaves those bytes alone; the session keeps its data in memory only.
         const unreadableStores = new Set();
+        const unreadableRecovery = new Set();
 
         function markUnreadable(key) {
             if (unreadableStores.has(key)) return;
@@ -933,6 +936,16 @@
             alert(`⚠ Saved data under "${key}" could not be read — it looks corrupted.\n\n` +
                   `The original is being left untouched so it can still be recovered. ` +
                   `New data is saved separately under "${key}${RECOVERY_SUFFIX}".`);
+        }
+
+        function markRecoveryUnreadable(key) {
+            unreadableStores.add(key);
+            if (unreadableRecovery.has(key)) return;
+            unreadableRecovery.add(key);
+            const seats = key === PLAYERS_KEY ? 'Seat ids could not be restored. ' : '';
+            alert(`⚠ Saved data under "${key}" and "${key}${RECOVERY_SUFFIX}" could not be read — both look corrupted.\n\n` +
+                  `${seats}Both copies are being left untouched. This session keeps its data in memory only ` +
+                  `and will not replace the recovery copy.`);
         }
 
         // Read one key as { status, value }: 'absent' (nothing stored, or storage
@@ -950,12 +963,18 @@
 
         // Read one JSON store. Returns the parsed value, or undefined when there is
         // nothing usable. A corrupt canonical blob is marked unreadable and its
-        // recovery copy read in its place.
+        // recovery copy read in its place. A recovery value that failed to parse
+        // is left unread — returning it as "nothing" must not lead to a write.
         function readStore(key, isValid) {
             const stored = readKey(key, isValid);
             if (stored.status !== 'corrupt') return stored.value;
+            const recovered = readKey(key + RECOVERY_SUFFIX, isValid);
+            if (recovered.status === 'corrupt') {
+                markRecoveryUnreadable(key);
+                return undefined;
+            }
             markUnreadable(key);
-            return readKey(key + RECOVERY_SUFFIX, isValid).value;
+            return recovered.value;
         }
 
         // Set once the browser refuses a write (storage blocked, quota full,
@@ -974,9 +993,19 @@
         }
 
         // Write one JSON store, diverting to the recovery copy while the canonical
-        // blob is unreadable so a save can never destroy it.
+        // blob is unreadable so a save can never destroy it. A recovery value that
+        // failed to parse is not a target either — initSeats saves on every boot,
+        // and that write must not replace a truncated seat blob with fresh ids.
         function writeStore(key, value) {
-            const target = unreadableStores.has(key) ? key + RECOVERY_SUFFIX : key;
+            if (unreadableRecovery.has(key)) return;
+            let target = key;
+            if (unreadableStores.has(key)) {
+                target = key + RECOVERY_SUFFIX;
+                if (readKey(target, () => true).status === 'corrupt') {
+                    markRecoveryUnreadable(key);
+                    return;
+                }
+            }
             try {
                 localStorage.setItem(target, JSON.stringify(value));
             } catch (err) {
@@ -995,6 +1024,7 @@
                 return false;
             }
             unreadableStores.delete(key);
+            unreadableRecovery.delete(key);
             return true;
         }
 
@@ -1076,6 +1106,8 @@
         // saved seats are restored, or fresh ids are minted for a first run /
         // legacy name-only storage, and the result is written back. Those writes
         // only add or re-key data — never clear seats or statistics here.
+        // savePlayersToStorage no-ops when the recovery value failed to parse, so
+        // this boot cannot replace yatzy_players_recovery with fresh seat ids.
         function initSeats() {
             const saved = readStore(PLAYERS_KEY, isSeatMap);
             if (saved) {
