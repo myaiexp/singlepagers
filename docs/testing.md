@@ -68,10 +68,16 @@ drop.
 
     NODE_V8_COVERAGE=.coverage node --test test/*.test.mjs && node test/coverage.mjs
 
-`test/coverage.mjs` fails below the per-page function-entry floors in
-`FLOORS`. The floors are the current measured rate rounded down: a ratchet,
-not a target. Raise them when coverage rises, and update the pinned values in
-`test/coverage.test.mjs` with them.
+`test/coverage.mjs` fails below two per-page floors. `FLOORS` is the
+function-entry rate (`ranges[0].count > 0`). `BLOCK_FLOORS` is the V8 block
+rate: every range is a block, and a range a file omits inherits the count of
+the tightest range in that same function which contains it. A block is
+uncovered only when every file's enclosing count is 0. Taking the max count
+of an exact range over-reports gaps. Both floors are the current measured
+rate rounded down: a ratchet, not a target. Raise them when coverage rises,
+and update the pinned values in `test/coverage.test.mjs` and
+`test/coverage-blocks.test.mjs` with them. The `FLOORS` / `BLOCK_FLOORS`
+tests pin those constants; they do not remeasure the suite.
 
 Do not add a GitHub Actions workflow. This repo has no GH runner, so the
 session that pushes runs the gate.

@@ -2,59 +2,33 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { FLOORS, main, percent, summarize } from './coverage.mjs';
+import { join } from 'node:path';
+import { BLOCK_FLOORS, FLOORS, percent, summarize } from './coverage.mjs';
+import { coverageCli, fn, mix, runAt, runMain, writeDir } from './coverage-fixture.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const cli = join(here, 'coverage.mjs');
-
-function fn(name, start, end, count) {
-  return {
-    functionName: name,
-    ranges: [{ startOffset: start, endOffset: end, count }],
-    isBlockCoverage: true,
-  };
-}
-
-function mix(entered, total, prefix) {
-  return Array.from({ length: total }, (_, i) =>
-    fn(`${prefix}${i}`, i, i + 1, i < entered ? 1 : 0),
-  );
-}
-
-function writeDir(files) {
-  const dir = mkdtempSync(join(tmpdir(), 'sp-cov-'));
-  for (const [name, result] of Object.entries(files)) {
-    writeFileSync(join(dir, name), JSON.stringify({ result }));
-  }
-  return dir;
-}
-
-function runMain(dir) {
-  const logs = [];
-  const errs = [];
-  const code = main(['node', cli, dir], {}, {
-    log: (s) => logs.push(String(s)),
-    error: (s) => errs.push(String(s)),
-  });
-  return { code, out: logs.join('\n'), err: errs.join('\n') };
-}
-
-test('percent rounds to one decimal (144/145 = 99.3, 102/107 = 95.3)', () => {
-  assert.equal(percent(144, 145), 99.3);
-  assert.equal(percent(102, 107), 95.3);
-  assert.equal(percent(143, 145), 98.6);
-  assert.equal(percent(101, 107), 94.4);
+test('percent rounds to one decimal', () => {
+  assert.equal(percent(160, 160), 100);
+  assert.equal(percent(159, 160), 99.4);
+  assert.equal(percent(104, 109), 95.4);
+  assert.equal(percent(103, 109), 94.5);
+  assert.equal(percent(423, 431), 98.1);
+  assert.equal(percent(422, 431), 97.9);
+  assert.equal(percent(309, 328), 94.2);
+  assert.equal(percent(310, 329), 94.2);
+  assert.equal(percent(309, 329), 93.9);
   assert.equal(percent(0, 0), 0);
 });
 
-test('FLOORS start at the current rates, rounded down', () => {
-  assert.equal(FLOORS['palaute.html'], 99);
+test('FLOORS pin palaute at 100 and yatzy at 95', () => {
+  assert.equal(FLOORS['palaute.html'], 100);
   assert.equal(FLOORS['yatzy.html'], 95);
+});
+
+test('BLOCK_FLOORS pin palaute at 98 and yatzy at 94', () => {
+  assert.equal(BLOCK_FLOORS['palaute.html'], 98);
+  assert.equal(BLOCK_FLOORS['yatzy.html'], 94);
 });
 
 test('summarize merges #script entries across files and ignores other urls', () => {
@@ -72,10 +46,14 @@ test('summarize merges #script entries across files and ignores other urls', () 
   const yatzy = rows.find((r) => r.page === 'yatzy.html');
   assert.equal(yatzy.entered, 3);
   assert.equal(yatzy.total, 3);
+  assert.equal(yatzy.blocks, 3);
+  assert.equal(yatzy.blockTotal, 3);
   assert.equal(yatzy.ok, true);
   const palaute = rows.find((r) => r.page === 'palaute.html');
   assert.equal(palaute.entered, 20);
   assert.equal(palaute.total, 20);
+  assert.equal(palaute.blocks, 20);
+  assert.equal(palaute.blockTotal, 20);
 });
 
 test('summarize fails a page that is absent (vacuous 100% over zero files is a miss)', () => {
@@ -85,6 +63,8 @@ test('summarize fails a page that is absent (vacuous 100% over zero files is a m
   const palaute = summarize(dir).find((r) => r.page === 'palaute.html');
   assert.equal(palaute.total, 0);
   assert.equal(palaute.entered, 0);
+  assert.equal(palaute.blockTotal, 0);
+  assert.equal(palaute.blocks, 0);
   assert.equal(palaute.ok, false);
 });
 
@@ -106,11 +86,11 @@ test('main exits 1 below the floor', () => {
   assert.match(err, /below floor/);
 });
 
-test('main exits 0 at the current rates (144/145 and 102/107)', () => {
+test('main exits 0 at the measured rates (160/160 and 104/109)', () => {
   const dir = writeDir({
     'coverage-a.json': [
-      { url: 'yatzy.html#script', functions: mix(102, 107, 'y') },
-      { url: 'palaute.html#script', functions: mix(144, 145, 'p') },
+      { url: 'yatzy.html#script', functions: mix(104, 109, 'y') },
+      { url: 'palaute.html#script', functions: mix(160, 160, 'p') },
     ],
   });
   const { code, out } = runMain(dir);
@@ -119,23 +99,14 @@ test('main exits 0 at the current rates (144/145 and 102/107)', () => {
   assert.match(out, /palaute\.html/);
 });
 
-// One page at `[entered, total]`, the other at its current rate.
-function runAt(page, entered, total) {
-  const rates = { 'yatzy.html': [102, 107], 'palaute.html': [144, 145], [page]: [entered, total] };
-  return runMain(writeDir({
-    'coverage-a.json': Object.entries(rates).map(([p, [e, t]]) =>
-      ({ url: `${p}#script`, functions: mix(e, t, p[0]) })),
-  }));
-}
-
-test('main exits 1 on a one-function yatzy drop (101/107 < 95)', () => {
-  const { code, out } = runAt('yatzy.html', 101, 107);
+test('main exits 1 on a one-function yatzy drop (103/109 < 95)', () => {
+  const { code, out } = runAt('yatzy.html', 103, 109);
   assert.equal(code, 1);
   assert.match(out, /yatzy\.html .*FAIL/);
 });
 
-test('a one-function palaute drop fails (143/145 < 99)', () => {
-  const { code, out } = runAt('palaute.html', 143, 145);
+test('a one-function palaute drop fails (159/160 < 100)', () => {
+  const { code, out } = runAt('palaute.html', 159, 160);
   assert.equal(code, 1);
   assert.match(out, /palaute\.html .*FAIL/);
 });
@@ -143,7 +114,7 @@ test('a one-function palaute drop fails (143/145 < 99)', () => {
 test('node test/coverage.mjs exits 1 on a missing dir (documented CLI)', () => {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
-  const r = spawnSync(process.execPath, [cli, join(tmpdir(), 'no-such-sp-cov-dir')], {
+  const r = spawnSync(process.execPath, [coverageCli, join(tmpdir(), 'no-such-sp-cov-dir')], {
     encoding: 'utf8',
     env,
   });
