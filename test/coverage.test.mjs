@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BLOCK_FLOORS, FLOORS, percent, summarize } from './coverage.mjs';
@@ -71,10 +72,22 @@ test('summarize fails a page that is absent (vacuous 100% over zero files is a m
   assert.equal(palaute.ok, false);
 });
 
+// A fixed name under tmpdir() can be created by another account first (CWE-377).
+function withMissingCoverageDir(run) {
+  const parent = mkdtempSync(join(tmpdir(), 'sp-cov-'));
+  try {
+    return run(join(parent, 'missing'));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}
+
 test('main exits 1 when the coverage dir is missing', () => {
-  const { code, err } = runMain(join(tmpdir(), 'no-such-sp-cov-dir'));
-  assert.equal(code, 1);
-  assert.match(err, /no V8 coverage directory/);
+  withMissingCoverageDir((missing) => {
+    const { code, err } = runMain(missing);
+    assert.equal(code, 1);
+    assert.match(err, /no V8 coverage directory/);
+  });
 });
 
 test('main exits 1 below the floor', () => {
@@ -117,10 +130,10 @@ test('a one-function palaute drop fails (159/160 < 100)', () => {
 test('node test/coverage.mjs exits 1 on a missing dir (documented CLI)', () => {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
-  const r = spawnSync(process.execPath, [coverageCli, join(tmpdir(), 'no-such-sp-cov-dir')], {
+  const r = withMissingCoverageDir((missing) => spawnSync(process.execPath, [coverageCli, missing], {
     encoding: 'utf8',
     env,
-  });
+  }));
   assert.equal(r.status, 1);
   assert.match(`${r.stderr}${r.stdout}`, /no V8 coverage directory/);
 });
