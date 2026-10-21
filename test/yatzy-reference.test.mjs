@@ -135,3 +135,30 @@ test("syncReferencePanel hides only the active player's filled tile", () => {
   run('syncReferencePanel()');
   assertShown(elements, []);
 });
+
+function referenceExamples(html) {
+  return [...html.matchAll(/<div class="reference-example">([^<]*)<\/div>/g)].map((m) => m[1]);
+}
+
+// Caption-size pip glyphs render as empty boxes. The example line is the
+// points only; the playable dice still use getDieFace.
+test('reference cards state the points and do not use dice glyphs', () => {
+  assert.deepEqual(referenceExamples(yatzyHtml), [
+    '3 points',
+    '6 points',
+    '9 points',
+    '12 points',
+    '15 points',
+    '18 points',
+    'Bonus: +50 points',
+    '12 points',
+    '22 points',
+    '18 points',
+    '24 points',
+    '15 points',
+    '20 points',
+    'Sum of all dice',
+    'Sum of all dice',
+    '50 points',
+  ]);
+});
