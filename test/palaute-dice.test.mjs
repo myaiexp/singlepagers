@@ -6,8 +6,10 @@
 // diceSimilarity(a,b) builds character bigram multisets of norm(a)/norm(b) and
 // returns 2|A∩B| / (|A|+|B|). When EITHER side has no bigrams (≤1 char after
 // normalization) it falls back to exact-string-equality (1 if norm-equal else 0).
-// That fallback is the part #1517 flags as uncovered, plus the quirk that two
-// strings sharing a character can still score 0 (e.g. 'a' vs 'ab').
+// That fallback is the part #1517 flags as uncovered. Two strings can share a
+// character and still score 0 (e.g. 'a' vs 'ab'). That result stays: the
+// suggestion list already boosts a stored answer that contains the query,
+// and a unigram score would only add one-character stored answers (#1662).
 //
 // Same no-deps harness as palaute-labels.test.mjs: loadPage runs the page's
 // real inline <script> under node:vm against the stub DOM with ZERO changes to
@@ -40,14 +42,13 @@ test("dice('a','a') → 1: single chars yield no bigrams, fallback sees them equ
   assert.equal(dice('a', 'a'), 1);
 });
 
-// --- KNOWN LIMITATION: short strings sharing a character still score 0 -------
+// --- short strings: exact equality, not unigram overlap (#1662) --------------
 
-test("dice('a','ab') → 0: PINNED short-string limitation, NOT a desired result", () => {
-  // 'a' and 'ab' visibly share the letter 'a', yet score 0. Reason: 'a' produces
-  // no bigrams, so dice() abandons set-overlap and falls back to exact-string-
-  // equality — and 'a' !== 'ab'. This is a real quality limitation (a unigram
-  // fallback would score >0); characterized here, deliberately left unfixed.
-  // Spun off as Code Quality idea C2 (unigram fallback) — out of scope for #1517.
+test("dice('a','ab') → 0: no bigrams, so exact equality, not shared characters", () => {
+  // 'a' produces no bigrams, so this is norm-equality and 'a' !== 'ab'.
+  // suggestionsFor still lists a stored answer that contains the query (it
+  // adds 0.5 before the 0.2 cutoff). Scoring unigrams here would newly
+  // suggest a stored one-character answer while a longer query is typed.
   assert.equal(dice('a', 'ab'), 0);
 });
 
