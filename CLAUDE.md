@@ -32,7 +32,9 @@ temp dir and copies each top-level `*.html` into `/var/www/html/`
 Browser localStorage is the only data store. Never overwrite a blob that
 failed to parse — divert later writes to `<key>_recovery`, and clear that
 copy together with the canonical key on reset. A recovery blob or a palaute
-deleted-list that itself fails to parse is left in place too.
+deleted-list that itself fails to parse is left in place too. A palaute row
+that is not a plain object with a string id is held back from the views and
+the export, and written back unchanged on save.
 Details: [`docs/storage.md`](docs/storage.md).
 
 ## Data handling (`palaute.html`)

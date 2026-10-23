@@ -295,6 +295,49 @@ function warnStorage(key, message) {
   warnedStorage.add(key);
   alert(message);
 }
+// A row `forms` can hold: a plain object with a string id. Any other element of
+// a readable store is held back — not shown, not exported — and persist()
+// writes it back unchanged, so a save never deletes the only copy. Coercing it
+// into blankForm() would export a fake empty response.
+function isKeptRow(f) {
+  return f !== null && typeof f === "object" && !Array.isArray(f) && typeof f.id === "string";
+}
+function heldWarnKey(key) {
+  return key + "#rows";
+}
+// Split a readable store into kept and held rows; the operator is told once per key.
+function splitRows(list, key) {
+  const kept = [], held = [];
+  for (const f of list) (isKeptRow(f) ? kept : held).push(f);
+  if (held.length) {
+    warnStorage(heldWarnKey(key),
+      `⚠ ${held.length} tallennettua riviä on vahingoittunut eikä niitä voitu lukea.\n\n` +
+      "Niitä ei näytetä eikä viedä (Vie Excel), mutta tallennus ei poista niitä. " +
+      "Muut vastaukset ovat tallessa.");
+  }
+  return { kept, held };
+}
+// Read-side defaults for a kept row that lacks ratings or free (damaged or
+// edited by hand). Views and exports use these; they are never written back.
+function ratingsOf(f) {
+  const r = Array.isArray(f.ratings) ? f.ratings : [];
+  return RATING_ITEMS.map((_, i) => typeof r[i] === "number" && isFinite(r[i]) ? r[i] : null);
+}
+function textOf(v) {
+  return typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+}
+function freeOf(f, key) {
+  return f.free && typeof f.free === "object" ? textOf(f.free[key]) : "";
+}
+// The entry view needs every field. Fill what a damaged row lacks for this edit
+// only; the stored row changes when the operator saves. A well-formed row comes
+// back JSON-identical to cloneForm(), so hasUnsavedEntry stays false on open.
+function editableForm(f) {
+  const copy = cloneForm(f);
+  const free = copy.free && typeof copy.free === "object" && !Array.isArray(copy.free) ? copy.free : {};
+  for (const ft of FREETEXT) free[ft.key] = freeOf(f, ft.key);
+  return { ...copy, ratings: ratingsOf(f), free, name: textOf(copy.name), phone: textOf(copy.phone) };
+}
 function readDeletedKey(key) {
   let raw;
   try {
@@ -343,7 +386,7 @@ function writeDeleted(delKey) {
   localStorage.setItem(copyKey, payload);
 }
 function withoutDeleted(list) {
-  return list.filter(f => !f || typeof f.id !== "string" || !deletedIds.has(f.id));
+  return list.filter(f => !deletedIds.has(f.id));
 }
 function newId() {
   return (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -369,7 +412,7 @@ function load() {
   const stored = readFormsKey(STORAGE_KEY);
   if (stored.status !== "corrupt") {
     absorbDeleted(deletedStorageKey(STORAGE_KEY));
-    return withoutDeleted(stored.value);
+    return withoutDeleted(splitRows(stored.value, STORAGE_KEY).kept);
   }
   // Unreadable blob: keep it. persist() writes STORAGE_RECOVERY_KEY instead,
   // unless that copy failed to parse too — then the rows stay in memory and
@@ -385,7 +428,7 @@ function load() {
   }
   warnStorage(STORAGE_KEY, CANONICAL_FORMS_MSG);
   absorbDeleted(delKey);
-  return withoutDeleted(recovered.value);
+  return withoutDeleted(splitRows(recovered.value, STORAGE_RECOVERY_KEY).kept);
 }
 // Union this tab's rows with whatever is on disk now. Memory order first, then
 // ids only the other tab has. An id in deletedIds stays gone. A row this tab
@@ -434,7 +477,9 @@ function mergeForms(stored, memory) {
   }
   return { forms: out, conflict, revived };
 }
-function persist() {
+// `wipeHeld` is clearAll's explicit wipe: the rows splitRows held back go too.
+// Every other save writes them back after the merged rows.
+function persist({ wipeHeld = false } = {}) {
   let key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
   let read = readFormsKey(key);
   // A blob that failed to parse is not a write target. Canonical damage diverts
@@ -454,9 +499,11 @@ function persist() {
   absorbDeleted(delKey);
   let conflict = false;
   let revived = false;
+  let held = [];
   if (read.status !== "corrupt") {
-    const stored = read.status === "ok" ? read.value : [];
-    const merged = mergeForms(stored, forms);
+    const split = splitRows(read.value, key);
+    if (!wipeHeld) held = split.held;
+    const merged = mergeForms(split.kept, forms);
     forms = merged.forms;
     conflict = merged.conflict;
     revived = merged.revived;
@@ -467,7 +514,7 @@ function persist() {
     // writeDeleted refuses a list that failed to parse.
     writeDeleted(delKey);
     if (read.status !== "corrupt") {
-      localStorage.setItem(key, JSON.stringify(forms));
+      localStorage.setItem(key, JSON.stringify([...forms, ...held]));
       baseJson = snapshotForms(forms);
     }
   } catch (e) {
@@ -513,7 +560,7 @@ function diceSimilarity(a, b) {
 function distinctAnswers(key) {
   const map = new Map();
   forms.forEach(f => {
-    const t = (f.free[key] || "").trim();
+    const t = freeOf(f, key).trim();
     if (!t) return;
     const k = norm(t);                       // group case/whitespace-insensitively
     const prev = map.get(k);                 // keep first-seen casing for display
@@ -630,7 +677,7 @@ function saveRowHTML() {
 }
 
 function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, c =>
+  return String(s ?? "").replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
@@ -800,7 +847,7 @@ function cancelEdit() {
 // differs from a blank form, or an edit that differs from its saved row.
 function hasUnsavedEntry() {
   const base = editingId !== null && forms.find(f => f.id === editingId);
-  return JSON.stringify(current) !== JSON.stringify(base || blankForm());
+  return JSON.stringify(current) !== JSON.stringify(base ? editableForm(base) : blankForm());
 }
 
 /* ------------------------------------------------------------------ *
@@ -814,11 +861,11 @@ function renderReview() {
     return;
   }
   const items = forms.map((f, i) => {
-    const rated = f.ratings.filter(r => r != null);
+    const rated = ratingsOf(f).filter(r => r != null);
     const avg = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : "–";
     const att = attLabel(f.attendance) || "—";
     const rec = recLabel(f.recommend) || "—";
-    const snip = f.free.best || f.free.improve || f.free.open || f.free.topics || "";
+    const snip = freeOf(f, "best") || freeOf(f, "improve") || freeOf(f, "open") || freeOf(f, "topics");
     return `<div class="rev-item">
       <div class="rev-no">#${i + 1}</div>
       <div class="rev-body">
@@ -847,7 +894,7 @@ function editForm(id) {
   if (id !== editingId) {
     if (hasUnsavedEntry() && !confirm("Syötössä on tallentamattomia muutoksia. " +
         "Hylätäänkö ne ja avataan tämä lomake muokattavaksi?")) return;
-    current = cloneForm(f);
+    current = editableForm(f);
     editingId = id;
     cursor = { section: "attendance" };
   }
@@ -863,7 +910,12 @@ function deleteForm(id) {
   renderReview();
 }
 function clearAll() {
-  if (!confirm("Poistetaanko KAIKKI " + forms.length + " lomaketta? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
+  // Held rows are never exported, so the confirm names them before the wipe removes them.
+  const writable = readFormsKey(storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY);
+  const heldCount = writable.value.filter(f => !isKeptRow(f)).length;
+  const what = forms.length + " lomaketta" +
+    (heldCount ? " ja " + heldCount + " vahingoittunutta riviä, joita ei voitu lukea" : "");
+  if (!confirm("Poistetaanko KAIKKI " + what + "? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
   // Explicit deletes for the ids this tab actually has. A row only another
   // tab has written is not in this list, and the merge below keeps it.
   for (const f of forms) {
@@ -886,7 +938,7 @@ function clearAll() {
       absorbDeleted(deletedStorageKey(STORAGE_RECOVERY_KEY));
       absorbDeleted(deletedStorageKey(STORAGE_KEY));
       const rows = recovered.status === "ok" ? recovered.value : [];
-      forms = rows.filter(f => f && typeof f.id === "string" && !deletedIds.has(f.id));
+      forms = rows.filter(f => isKeptRow(f) && !deletedIds.has(f.id));
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(deletedStorageKey(STORAGE_KEY));
       localStorage.removeItem(deletedRecoveryKey(deletedStorageKey(STORAGE_KEY)));
@@ -900,8 +952,10 @@ function clearAll() {
     localStorage.removeItem(deletedStorageKey(STORAGE_RECOVERY_KEY));
     localStorage.removeItem(deletedRecoveryKey(deletedStorageKey(STORAGE_RECOVERY_KEY)));
     warnedStorage.delete(STORAGE_RECOVERY_KEY);
+    warnedStorage.delete(heldWarnKey(STORAGE_KEY));
+    warnedStorage.delete(heldWarnKey(STORAGE_RECOVERY_KEY));
   } catch (e) { /* storage disabled — in-memory wipe still stands */ }
-  persist();
+  persist({ wipeHeld: true });
   if (forms.length) {
     alert("Toisessa välilehdessä oli vastauksia, joita tässä näkymässä ei ollut. Niitä ei poistettu.");
   }
@@ -1130,10 +1184,10 @@ function sheetResponses() {
     ...FREETEXT.map(f => f.question), "Nimi", "Puhelinnumero"];
   const dataRows = forms.map((f, i) => [
     i + 1, attLabel(f.attendance),
-    ...f.ratings.map(r => r == null ? "" : r),
+    ...ratingsOf(f).map(r => r == null ? "" : r),
     recLabel(f.recommend),
-    ...FREETEXT.map(ft => f.free[ft.key] || ""),
-    f.name || "", f.phone || "",
+    ...FREETEXT.map(ft => freeOf(f, ft.key)),
+    textOf(f.name), textOf(f.phone),
   ]);
   const cols = header.length;
   const widths = header.map((h, i) => i === 0 ? 5 : Math.min(28, Math.max(10, h.length)));
@@ -1166,9 +1220,10 @@ function sheetSummary() {
   rb.addRow([]);
   const ratingHeaderRow = rb.addRow(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
   const ratingFirstRow = rb.count + 1;
+  const ratings = forms.map(ratingsOf);
   RATING_ITEMS.forEach((label, i) => {
-    const vals = forms.map(f => f.ratings[i]).filter(v => v != null);
-    const counts = [1,2,3,4,5].map(n => forms.filter(f => f.ratings[i] === n).length);
+    const vals = ratings.map(r => r[i]).filter(v => v != null);
+    const counts = [1,2,3,4,5].map(n => ratings.filter(r => r[i] === n).length);
     const avg = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "";
     rb.addRow([label, ...counts, vals.length, avg]);
   });

@@ -10,6 +10,18 @@ operator to export; yatzy does not write fresh seat ids over it. A palaute
 deleted-list that fails to parse diverts to its own `_recovery` sibling
 (`…_deleted_recovery`).
 
+A readable palaute store can still hold damaged rows. `splitRows` keeps a row
+in `forms` only when it is a plain object with a string id (`isKeptRow`), and
+alerts once per key about the rest. Held rows are not rendered or exported.
+`persist` writes them back unchanged after the merged rows, and only
+`clearAll`'s wipe (`persist({ wipeHeld: true })`) removes them; its confirm
+names their count. The store is not marked corrupt, so the good rows stay
+reviewable. A held row is never coerced into `blankForm()`, which would
+export a fake empty response. A kept row may lack `ratings` or `free`: review, both sheets,
+suggestions and the edit form read it through `ratingsOf` / `freeOf` /
+`textOf` / `editableForm`, and those defaults are never written back unless
+the operator saves an edit.
+
 `palaute_huippu2026_v1` holds the raffle name and phone unencrypted.
 localStorage is the origin, not the path, so every other page on
 https://mase.fi can read that key, and so can a script-injection bug in one
