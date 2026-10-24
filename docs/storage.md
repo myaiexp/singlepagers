@@ -45,3 +45,7 @@ A write the browser refuses (storage blocked, quota full, `localStorage` null)
 must not throw out of its caller: palaute's `persist()` and yatzy's
 `writeStore` / `clearStore` catch it, alert, and the page keeps working in
 memory. yatzy's `endGame` shows the game-over overlay before writing stats.
+palaute's `persist()` adopts its merge (`forms`, `baseJson`, the conflict and
+revived alerts) only after `setItem` succeeds; a refused write leaves memory
+as it was, so the retry finds the same conflict once instead of minting a
+second copy of the other tab's row.

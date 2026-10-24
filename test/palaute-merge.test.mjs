@@ -177,3 +177,59 @@ test('a save while the canonical blob is corrupt merges the recovery key and lea
   assert.ok(ids.includes('row-1') && ids.includes('row-2'));
   assert.equal(ids.length, 3);
 });
+
+// A failed write must not commit the merge (finding #6706). Otherwise the
+// conflict copy lives only in memory, baseJson still names the old row, and
+// the retry mints a second copy of the other tab's response.
+function failWrites(sandbox) {
+  const storage = sandbox.localStorage;
+  const real = storage.setItem.bind(storage);
+  const state = { failing: true };
+  storage.setItem = (k, v) => {
+    if (state.failing) {
+      const err = new Error('The quota has been exceeded.');
+      err.name = 'QuotaExceededError';
+      throw err;
+    }
+    real(k, v);
+  };
+  return state;
+}
+
+test('a failed save of a both-tabs edit does not duplicate the other version on retry', () => {
+  const row1 = form('row-1', 'old');
+  const { sandbox, run, alerts } = boot({ [STORAGE_KEY]: JSON.stringify([row1]) });
+  run('editForm("row-1"); current.free.best = "ours";');
+  const edited = stored(sandbox);
+  edited[0].free.best = 'theirs';
+  put(sandbox, edited);
+  const writes = failWrites(sandbox);
+  run('saveForm()');
+  assert.ok(alerts.some(a => /täynnä/.test(a)), 'the failed write is reported');
+  assert.ok(!alerts.some(a => /Molemmat versiot/.test(a)), 'nothing was kept on disk yet');
+  assert.equal(run('forms.length'), 1, 'memory holds this tab\'s edit, not an unsaved copy');
+  assert.equal(run('forms[0].free.best'), 'ours');
+  writes.failing = false;
+  run('persist()');
+  const bests = stored(sandbox).map(f => f.free.best).sort();
+  assert.deepEqual(bests, ['ours', 'theirs']);
+  assert.equal(alerts.filter(a => /Molemmat versiot/.test(a)).length, 1);
+});
+
+test('a failed save of an edit the other tab deleted does not claim it was saved', () => {
+  const row1 = form('row-1', 'old');
+  const { sandbox, run, alerts } = boot({ [STORAGE_KEY]: JSON.stringify([row1]) });
+  run('editForm("row-1"); current.free.best = "kept";');
+  put(sandbox, []);
+  sandbox.localStorage.setItem(DELETED_KEY, JSON.stringify(['row-1']));
+  const writes = failWrites(sandbox);
+  run('saveForm()');
+  assert.ok(!alerts.some(a => /toisessa välilehdessä/i.test(a)));
+  writes.failing = false;
+  run('persist()');
+  const disk = stored(sandbox);
+  assert.equal(disk.length, 1);
+  assert.notEqual(disk[0].id, 'row-1');
+  assert.equal(disk[0].free.best, 'kept');
+  assert.equal(alerts.filter(a => /toisessa välilehdessä/i.test(a) && /uutena/.test(a)).length, 1);
+});

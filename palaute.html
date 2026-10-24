@@ -478,7 +478,10 @@ function mergeForms(stored, memory) {
   return { forms: out, conflict, revived };
 }
 // `wipeHeld` is clearAll's explicit wipe: the rows splitRows held back go too.
-// Every other save writes them back after the merged rows.
+// Every other save writes them back after the merged rows. The merge reaches
+// `forms`, baseJson and the conflict alerts only once setItem succeeds: a
+// conflict copy kept only in memory, with baseJson still on the old row, would
+// be minted again by the retry.
 function persist({ wipeHeld = false } = {}) {
   let key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
   let read = readFormsKey(key);
@@ -497,25 +500,24 @@ function persist({ wipeHeld = false } = {}) {
   }
   const delKey = deletedStorageKey(key);
   absorbDeleted(delKey);
-  let conflict = false;
-  let revived = false;
+  let merged = null;
+  let saved = false;
   let held = [];
   if (read.status !== "corrupt") {
     const split = splitRows(read.value, key);
     if (!wipeHeld) held = split.held;
-    const merged = mergeForms(split.kept, forms);
-    forms = merged.forms;
-    conflict = merged.conflict;
-    revived = merged.revived;
+    merged = mergeForms(split.kept, forms);
   }
   try {
     // Record the suppression before the shrunk array, so a crash between the
     // two writes cannot resurrect an id the next load would otherwise show.
     // writeDeleted refuses a list that failed to parse.
     writeDeleted(delKey);
-    if (read.status !== "corrupt") {
-      localStorage.setItem(key, JSON.stringify([...forms, ...held]));
+    if (merged) {
+      localStorage.setItem(key, JSON.stringify([...merged.forms, ...held]));
+      forms = merged.forms;
       baseJson = snapshotForms(forms);
+      saved = true;
     }
   } catch (e) {
     // Quota exceeded (or storage disabled): the write failed, but `forms` is
@@ -525,10 +527,10 @@ function persist({ wipeHeld = false } = {}) {
           "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
           "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
   }
-  if (conflict) {
+  if (saved && merged.conflict) {
     alert("Samaa vastausta oli muokattu toisessa välilehdessä. Molemmat versiot säilytettiin.");
   }
-  if (revived) {
+  if (saved && merged.revived) {
     alert("Muokattava lomake oli poistettu toisessa välilehdessä. Muutokset tallennettiin uutena lomakkeena.");
   }
   updateCount();
