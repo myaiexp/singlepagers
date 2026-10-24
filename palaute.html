@@ -139,6 +139,7 @@
   .save-row .hint { flex: 1; }
   /* ---- Review list ---- */
   .review-empty { color: var(--muted); text-align: center; padding: 30px 0; }
+  .review-note { background: var(--accent-tint); color: var(--accent-dark); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
   .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .rev-item:last-child { border-bottom: none; }
   .rev-no { font-weight: 600; width: 34px; color: var(--muted); }
@@ -876,6 +877,11 @@ function hasUnsavedEntry() {
   const base = editingId !== null && forms.find(f => f.id === editingId);
   return JSON.stringify(current) !== JSON.stringify(base ? editableForm(base) : blankForm());
 }
+// Unsaved typing that saveForm would accept. `current` is not in `forms`, so
+// export, review and clearAll name it rather than silently leaving it out.
+function hasUnsavedResponse() {
+  return hasUnsavedEntry() && !isBlankResponse(current);
+}
 
 /* ------------------------------------------------------------------ *
  * Review view
@@ -883,8 +889,11 @@ function hasUnsavedEntry() {
 const reviewEl = document.getElementById("review");
 
 function renderReview() {
+  const note = !hasUnsavedResponse() ? "" : `<div class="review-note">${editingId !== null
+    ? "Muokattavan lomakkeen muutokset eivät ole tallessa ennen kuin tallennat ne."
+    : "Syötössä on tallentamaton lomake. Se ei ole tässä listassa eikä tallessa ennen kuin tallennat sen."}</div>`;
   if (!forms.length) {
-    reviewEl.innerHTML = `<div class="review-empty">Ei vielä tallennettuja lomakkeita.</div>`;
+    reviewEl.innerHTML = note + `<div class="review-empty">Ei vielä tallennettuja lomakkeita.</div>`;
     return;
   }
   const items = forms.map((f, i) => {
@@ -905,7 +914,7 @@ function renderReview() {
       </div>
     </div>`;
   }).join("");
-  reviewEl.innerHTML = items +
+  reviewEl.innerHTML = note + items +
     `<div class="danger-zone"><button class="danger" id="clearBtn">Tyhjennä kaikki</button></div>`;
 
   reviewEl.querySelectorAll("[data-edit]").forEach(b =>
@@ -940,8 +949,12 @@ function clearAll() {
   // Held rows are never exported, so the confirm names them before the wipe removes them.
   const writable = readFormsKey(storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY);
   const heldCount = writable.value.filter(f => !isKeptRow(f)).length;
+  // The entry on screen goes too, and may hold the raffle name and phone.
   const what = forms.length + " lomaketta" +
-    (heldCount ? " ja " + heldCount + " vahingoittunutta riviä, joita ei voitu lukea" : "");
+    (heldCount ? " ja " + heldCount + " vahingoittunutta riviä, joita ei voitu lukea" : "") +
+    (!hasUnsavedResponse() ? "" : (heldCount ? ", ja" : " ja") + (editingId !== null
+      ? " syötössä olevat tallentamattomat muutokset"
+      : " syötössä oleva tallentamaton lomake"));
   if (!confirm("Poistetaanko KAIKKI " + what + "? Vie ensin Excel jos haluat säilyttää tiedot.")) return;
   // Explicit deletes for the ids this tab actually has. A row only another
   // tab has written is not in this list, and the merge below keeps it.
@@ -1120,6 +1133,15 @@ async function exportXlsx() {
 // Prefer .xlsx when ExcelJS is reachable; never fail closed offline — fall back
 // to JSON with the same three sheets so the venue can still extract all data.
 async function exportForms() {
+  // The entry on screen is not in `forms`. Saving it first keeps the file and
+  // the device identical; Peruuta exports what is already stored.
+  if (hasUnsavedResponse() && confirm(editingId !== null
+      ? "Muokattavan lomakkeen muutoksia ei ole tallennettu. Tallennetaanko ne ennen vientiä?\n\n" +
+        "Peruuta: viedään viimeksi tallennettu versio."
+      : "Syötössä on tallentamaton lomake. Tallennetaanko se ja otetaanko se mukaan vientiin?\n\n" +
+        "Peruuta: viedään vain jo tallennetut lomakkeet.")) {
+    saveForm();
+  }
   if (!forms.length) { alert("Ei vielä tallennettuja lomakkeita."); return; }
   try {
     await loadExcelJS();
