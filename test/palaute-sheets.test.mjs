@@ -93,3 +93,26 @@ test('Avoimet teemat merges case-insensitive duplicate answers (#16)', async () 
   const topic = rows.find(r => r[0] === 'Lisää aikaa');
   assert.deepEqual(topic, ['Lisää aikaa', 2]);
 });
+
+test('Yhteenveto day and recommend tables each sum to the headline total', () => {
+  // A save needs only one filled field (isBlankResponse), so a stored response
+  // can leave attendance or recommend blank. An unknown stored value has no
+  // label on Vastaukset either, so it counts as unanswered too.
+  run(`forms = ${JSON.stringify([
+    ...FORMS,
+    { id: 'd', attendance: '', ratings: [], recommend: '', free: { best: 'x' } },
+    { id: 'e', attendance: 'sat', ratings: [], recommend: 'joo', free: {} },
+    { id: 'f', attendance: 'thu', ratings: [], recommend: '', free: {} },
+  ])};`);
+  const rows = JSON.parse(run('JSON.stringify(sheetSummary().rows)'));
+  assert.deepEqual(rows[1], ['Vastauksia yhteensä: 6']);
+  const table = (header) => {
+    const start = rows.findIndex(r => r[0] === header) + 1;
+    const end = rows.findIndex((r, i) => i >= start && r.length === 0);
+    return rows.slice(start, end === -1 ? rows.length : end);
+  };
+  assert.deepEqual(table('Osallistuminen'),
+    [['Molemmat päivät', 1], ['Torstai', 2], ['Perjantai', 1], ['Ei vastausta', 2]]);
+  assert.deepEqual(table('Suosittelisi kollegalle'),
+    [['Kyllä', 1], ['Ehkä', 1], ['En', 1], ['Ei vastausta', 3]]);
+});

@@ -1301,6 +1301,19 @@ function sheetResponses() {
   return { rows, widths, style };
 }
 
+// One row per configured choice plus "Ei vastausta" for every form whose value
+// matches none of them, so the table sums to the headline total: a save needs
+// only one filled field, so a stored response can leave the question blank.
+function addChoiceRows(rb, choices, key) {
+  let answered = 0;
+  choices.forEach(c => {
+    const n = forms.filter(f => f[key] === c.value).length;
+    answered += n;
+    rb.addRow([c.label, n]);
+  });
+  rb.addRow(["Ei vastausta", forms.length - answered]);
+}
+
 // Sheet 2: aggregate stats
 function sheetSummary() {
   const rb = makeRowBuilder();
@@ -1308,7 +1321,7 @@ function sheetSummary() {
   const subRow = rb.addRow([`Vastauksia yhteensä: ${forms.length}`]);
   rb.addRow([]);
   const attendanceRow = rb.addRow(["Osallistuminen", "kpl"]);
-  ATTENDANCE.forEach(a => rb.addRow([a.label, forms.filter(f => f.attendance === a.value).length]));
+  addChoiceRows(rb, ATTENDANCE, "attendance");
   rb.addRow([]);
   const ratingHeaderRow = rb.addRow(["Arviointi", "1", "2", "3", "4", "5", "Vastauksia", "Keskiarvo"]);
   const ratingFirstRow = rb.count + 1;
@@ -1322,7 +1335,7 @@ function sheetSummary() {
   const ratingLastRow = rb.count;
   rb.addRow([]);
   const recommendRow = rb.addRow(["Suosittelisi kollegalle", "kpl"]);
-  RECOMMEND.forEach(rc => rb.addRow([rc.label, forms.filter(f => f.recommend === rc.value).length]));
+  addChoiceRows(rb, RECOMMEND, "recommend");
 
   const style = (ws) => {
     ws.getCell(titleRow, 1).font = { bold: true, size: 14, color: { argb: XL.tealDark } };
