@@ -1044,11 +1044,40 @@
 
         const isStatsMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
+        // This session's statistics map, read from storage once. Storage can
+        // refuse the write, or both stats copies can be unreadable, and the
+        // games just played must still show in the modal. null until first read.
+        let statsMemory = null;
+
+        // Reload statsMemory from storage. The unreadable flags are re-derived
+        // first, because another tab's reset removes both copies and makes the
+        // store writable again. While the recovery copy is unreadable, storage
+        // holds none of this session's games, so memory is kept.
+        function reloadStats() {
+            const canonicalBad = readKey(STATS_KEY, isStatsMap).status === 'corrupt';
+            if (!canonicalBad) unreadableStores.delete(STATS_KEY);
+            if (!canonicalBad || readKey(STATS_KEY + RECOVERY_SUFFIX, isStatsMap).status !== 'corrupt') {
+                unreadableRecovery.delete(STATS_KEY);
+            }
+            const stored = readStore(STATS_KEY, isStatsMap);
+            if (statsMemory === null || !unreadableRecovery.has(STATS_KEY)) statsMemory = stored || {};
+        }
+
+        // Another tab's save or reset reaches this tab only through this event;
+        // without the reload, this tab's next game would write its older map
+        // over the other tab's games. key null is localStorage.clear().
+        window.addEventListener('storage', (e) => {
+            if (e.key === null || e.key === STATS_KEY || e.key === STATS_KEY + RECOVERY_SUFFIX) reloadStats();
+        });
+
+        // A shallow copy: a caller changes it and hands it to saveAllStats.
         function loadAllStats() {
-            return readStore(STATS_KEY, isStatsMap) || {};
+            if (statsMemory === null) reloadStats();
+            return { ...statsMemory };
         }
 
         function saveAllStats(allStats) {
+            statsMemory = allStats;
             writeStore(STATS_KEY, allStats);
         }
 
@@ -1206,8 +1235,7 @@
 
         // A seat's row with every counter as a finite number (statNum), so the
         // caller can do arithmetic on it. A non-object row reads as empty.
-        function getPlayerStats(playerId) {
-            const allStats = loadAllStats();
+        function getPlayerStats(playerId, allStats = loadAllStats()) {
             const existing = allStats[playerId];
             if (isStatsMap(existing)) {
                 const stats = { ...emptyStats(existing.name), ...existing };
@@ -1218,21 +1246,16 @@
             return emptyStats(seat ? seat.name : '');
         }
 
-        function savePlayerStats(playerId, stats) {
-            const allStats = loadAllStats();
-            allStats[playerId] = stats;
-            saveAllStats(allStats);
-        }
-
         const OUTCOME_COUNTER = { win: 'wins', loss: 'losses', draw: 'draws' };
 
-        // Record one finished game for one seat. `outcome` is 'win' | 'loss' |
-        // 'draw' and moves exactly one counter, so wins + losses + draws ==
-        // gamesPlayed. `rolls` is this seat's own roll count for the game.
-        function updateOnePlayerStats(seat, { score, bonus, yatzy, rolls, outcome }) {
+        // Record one finished game for one seat in `allStats` (not saved here).
+        // `outcome` is 'win' | 'loss' | 'draw' and moves exactly one counter, so
+        // wins + losses + draws == gamesPlayed. `rolls` is this seat's own roll
+        // count for the game.
+        function updateOnePlayerStats(allStats, seat, { score, bonus, yatzy, rolls, outcome }) {
             const counter = OUTCOME_COUNTER[outcome];
             if (!counter) throw new Error(`unknown game outcome: ${outcome}`);
-            const stats = getPlayerStats(seat.id);
+            const stats = getPlayerStats(seat.id, allStats);
             stats.name = seat.name;
             stats.gamesPlayed++;
             stats.totalRolls += rolls;
@@ -1241,16 +1264,20 @@
             if (bonus) stats.bonusCount++;
             if (yatzy) stats.yatzysScored++;
             stats[counter]++;
-            savePlayerStats(seat.id, stats);
+            allStats[seat.id] = stats;
         }
 
         // winner: 0 tie, else the winning seatNo. p1 / p2: that seat's
         // { score, bonus, yatzy, rolls } for the game just finished (seatResult).
+        // Both seats go into one write, so storage never holds a win without
+        // its matching loss.
         function updateGameStatistics(winner, p1, p2) {
             if (![0, 1, 2].includes(winner)) throw new Error(`unknown winner: ${winner}`);
             const outcomeFor = (seatNo) => winner === 0 ? 'draw' : (winner === seatNo ? 'win' : 'loss');
-            updateOnePlayerStats(seatFor(1), { ...p1, outcome: outcomeFor(1) });
-            updateOnePlayerStats(seatFor(2), { ...p2, outcome: outcomeFor(2) });
+            const allStats = loadAllStats();
+            updateOnePlayerStats(allStats, seatFor(1), { ...p1, outcome: outcomeFor(1) });
+            updateOnePlayerStats(allStats, seatFor(2), { ...p2, outcome: outcomeFor(2) });
+            saveAllStats(allStats);
         }
 
         function showStatsModal() {
@@ -1353,6 +1380,7 @@
                 alert('Statistics could not be reset — this browser is blocking storage.');
                 return;
             }
+            statsMemory = {};
             renderStatistics();
             alert('All statistics have been reset.');
         }

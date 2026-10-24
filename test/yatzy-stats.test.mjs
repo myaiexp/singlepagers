@@ -2,8 +2,8 @@
 // must keep wins + losses + draws == gamesPlayed so ties are accounted for, accumulate
 // per-player counters correctly, and key stats by stable seat id so a mid-game name
 // change does not fork a new entry. Same no-deps node:vm + stub-DOM harness as the
-// scoring tests; the stub provides a real in-memory localStorage, so getPlayerStats /
-// savePlayerStats round-trip exactly as they do in the browser.
+// scoring tests; the stub provides a real in-memory localStorage, so updateGameStatistics'
+// write lands exactly as it does in the browser.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,7 +100,7 @@ test('an unknown winner or outcome throws before any counter moves', () => {
   const s = loadGame();
   const line = '{ score: 100, bonus: false, yatzy: false, rolls: 13 }';
   assert.throws(() => s.run(`updateGameStatistics(3, ${line}, ${line});`), /unknown winner/);
-  assert.throws(() => s.run(`updateOnePlayerStats(players.player1, { ...${line}, outcome: 'forfeit' });`),
+  assert.throws(() => s.run(`updateOnePlayerStats(loadAllStats(), players.player1, { ...${line}, outcome: 'forfeit' });`),
     /unknown game outcome/);
   assert.equal(statsOfId(s, seatId(s, 'player1')).gamesPlayed, 0);
   assert.equal(statsOfId(s, seatId(s, 'player2')).gamesPlayed, 0);

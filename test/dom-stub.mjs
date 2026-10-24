@@ -149,6 +149,7 @@ export function createSandbox(seed) {
     clearInterval() {},
     requestAnimationFrame() { return 0; },
     cancelAnimationFrame() {},
+    ...listenerMethods, // page's window is the vm global proxy: dispatch on run('window')
   };
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
