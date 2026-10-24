@@ -244,3 +244,39 @@ test('migrateLegacyNameKeyedStats merges a name-keyed row onto an existing seat-
   assert.equal(alice.highestScore, 250);
   assert.equal(alice.bonusCount, 1);
 });
+
+// finding #6709: renderStatistics shows a stored counter through statNum, but
+// the next game used ++ / += on the raw value — a numeric string concatenated
+// ("100" + 80 = "10080") and a non-numeric one became NaN, stored as null.
+// A game must add onto the number the Statistics modal showed.
+test('a game adds onto string counters as the modal reads them', () => {
+  const s = loadGame();
+  const aliceId = seatId(s, 'player1');
+  s.run(
+    `saveAllStats({
+       ${JSON.stringify(aliceId)}: {
+         name: 'Alice', gamesPlayed: '<b>x</b>', wins: '2', losses: '1', draws: null,
+         totalRolls: '10', highestScore: '90', totalPoints: '100', yatzysScored: 'abc', bonusCount: '3'
+       }
+     });`,
+  );
+  playGame(s, { winner: 1, p1Score: 80, p2Score: 70, p1Bonus: true, p1Yatzy: true, p1Rolls: 13 });
+  const alice = allStats(s)[aliceId];
+  assert.deepEqual(
+    [alice.gamesPlayed, alice.wins, alice.losses, alice.draws, alice.totalRolls,
+      alice.highestScore, alice.totalPoints, alice.yatzysScored, alice.bonusCount],
+    [1, 3, 1, 0, 23, 90, 180, 1, 4],
+  );
+});
+
+test('mergeStats adds string counters as numbers', () => {
+  const s = loadGame();
+  const row = JSON.parse(s.run(`JSON.stringify(mergeStats(
+    { gamesPlayed: '2', totalPoints: '100', highestScore: '250', wins: 'abc' },
+    { gamesPlayed: 3, totalPoints: 80, highestScore: 90, wins: 1 }
+  ))`));
+  assert.equal(row.gamesPlayed, 5);
+  assert.equal(row.totalPoints, 180);
+  assert.equal(row.highestScore, 250);
+  assert.equal(row.wins, 1);
+});

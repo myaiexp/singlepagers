@@ -916,6 +916,17 @@
             };
         }
 
+        const STAT_COUNTERS = Object.keys(emptyStats()).filter(k => k !== 'name');
+
+        // A counter from localStorage is not necessarily a number. Interpolating
+        // the raw value into innerHTML would turn a string payload into a tag, and
+        // ++ / += on it concatenates ("100" + 80) or yields NaN (saved as null).
+        // Every reader goes through this so a game adds onto what the modal shows.
+        function statNum(v) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : 0;
+        }
+
         // ===== PERSISTENT STORES =====
 
         const STATS_KEY = 'yatzy_statistics';
@@ -1085,19 +1096,15 @@
             if (changed) saveAllStats(next);
         }
 
+        // Sum every counter except highestScore, which takes the max. A legacy
+        // row may be partial; a missing counter reads as 0.
         function mergeStats(a, b) {
-            return {
-                name: b.name || a.name || '',
-                gamesPlayed: (a.gamesPlayed || 0) + (b.gamesPlayed || 0),
-                wins: (a.wins || 0) + (b.wins || 0),
-                losses: (a.losses || 0) + (b.losses || 0),
-                draws: (a.draws || 0) + (b.draws || 0),
-                totalRolls: (a.totalRolls || 0) + (b.totalRolls || 0),
-                highestScore: Math.max(a.highestScore || 0, b.highestScore || 0),
-                totalPoints: (a.totalPoints || 0) + (b.totalPoints || 0),
-                yatzysScored: (a.yatzysScored || 0) + (b.yatzysScored || 0),
-                bonusCount: (a.bonusCount || 0) + (b.bonusCount || 0)
-            };
+            const merged = emptyStats(b.name || a.name);
+            for (const key of STAT_COUNTERS) {
+                const [x, y] = [statNum(a[key]), statNum(b[key])];
+                merged[key] = key === 'highestScore' ? Math.max(x, y) : x + y;
+            }
+            return merged;
         }
 
         const isSeatMap = (v) => !!(v?.player1?.id && v?.player2?.id);
@@ -1197,10 +1204,16 @@
 
         // ===== STATISTICS MANAGEMENT (keyed by seat id) =====
 
+        // A seat's row with every counter as a finite number (statNum), so the
+        // caller can do arithmetic on it. A non-object row reads as empty.
         function getPlayerStats(playerId) {
             const allStats = loadAllStats();
             const existing = allStats[playerId];
-            if (existing) return { ...emptyStats(existing.name), ...existing };
+            if (isStatsMap(existing)) {
+                const stats = { ...emptyStats(existing.name), ...existing };
+                for (const key of STAT_COUNTERS) stats[key] = statNum(stats[key]);
+                return stats;
+            }
             const seat = Object.values(players).find(p => p.id === playerId);
             return emptyStats(seat ? seat.name : '');
         }
@@ -1227,7 +1240,7 @@
             if (score > stats.highestScore) stats.highestScore = score;
             if (bonus) stats.bonusCount++;
             if (yatzy) stats.yatzysScored++;
-            stats[counter] = (stats[counter] || 0) + 1;
+            stats[counter]++;
             savePlayerStats(seat.id, stats);
         }
 
@@ -1243,13 +1256,6 @@
         function showStatsModal() {
             renderStatistics();
             showModal('statsModal');
-        }
-
-        // A counter from localStorage is not necessarily a number. Interpolating
-        // the raw value into innerHTML would turn a string payload into a tag.
-        function statNum(v) {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : 0;
         }
 
         function renderStatistics() {
