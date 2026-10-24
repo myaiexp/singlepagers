@@ -235,6 +235,7 @@ const TOMBSTONE_COPY_MSG =
 let storageUnreadable = false; // true when STORAGE_KEY holds a blob load() could not use
 let deletedIds = new Set(); // ids removed on purpose; a merge must not bring them back
 const warnedStorage = new Set(); // keys we already told the operator we will not overwrite
+let heldWarnings = null;   // warnStorage messages queued by holdWarnings, or null
 let forms = load();        // array of saved form objects
 let baseJson = snapshotForms(forms); // JSON per id at the last successful read or write
 let current = blankForm(); // form being entered/edited
@@ -293,7 +294,22 @@ function snapshotForms(list) {
 function warnStorage(key, message) {
   if (warnedStorage.has(key)) return;
   warnedStorage.add(key);
-  alert(message);
+  if (heldWarnings) heldWarnings.push(message);
+  else alert(message);
+}
+// Run a read-then-write with its storage warnings shown only after the write.
+// While a dialog is open the other tab can save; a write from a read taken
+// before that dialog would drop the other tab's rows and deletes.
+function holdWarnings(fn) {
+  if (heldWarnings) return fn();
+  heldWarnings = [];
+  try {
+    return fn();
+  } finally {
+    const queued = heldWarnings;
+    heldWarnings = null;
+    for (const message of queued) alert(message);
+  }
 }
 // A row `forms` can hold: a plain object with a string id. Any other element of
 // a readable store is held back — not shown, not exported — and persist()
@@ -482,7 +498,27 @@ function mergeForms(stored, memory) {
 // `forms`, baseJson and the conflict alerts only once setItem succeeds: a
 // conflict copy kept only in memory, with baseJson still on the old row, would
 // be minted again by the retry.
-function persist({ wipeHeld = false } = {}) {
+function persist(options) {
+  const { merged, saved, failed } = holdWarnings(() => writeMerged(options));
+  if (failed) {
+    // Quota exceeded (or storage disabled): the write failed, but `forms` is
+    // still intact in memory and fully exportable. Warn the operator to export
+    // now rather than silently reporting a save that never reached disk.
+    alert("⚠ Selaimen tallennustila on täynnä eikä tietoja voitu tallentaa pysyvästi.\n\n" +
+          "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
+          "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
+  }
+  if (saved && merged.conflict) {
+    alert("Samaa vastausta oli muokattu toisessa välilehdessä. Molemmat versiot säilytettiin.");
+  }
+  if (saved && merged.revived) {
+    alert("Muokattava lomake oli poistettu toisessa välilehdessä. Muutokset tallennettiin uutena lomakkeena.");
+  }
+  updateCount();
+}
+// persist's read, merge and write. It shows no dialog, so nothing runs between
+// the read and the setItem.
+function writeMerged({ wipeHeld = false } = {}) {
   let key = storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY;
   let read = readFormsKey(key);
   // A blob that failed to parse is not a write target. Canonical damage diverts
@@ -520,20 +556,9 @@ function persist({ wipeHeld = false } = {}) {
       saved = true;
     }
   } catch (e) {
-    // Quota exceeded (or storage disabled): the write failed, but `forms` is
-    // still intact in memory and fully exportable. Warn the operator to export
-    // now rather than silently reporting a save that never reached disk.
-    alert("⚠ Selaimen tallennustila on täynnä eikä tietoja voitu tallentaa pysyvästi.\n\n" +
-          "Vie tiedot heti (Vie Excel) — tähän mennessä syötetyt lomakkeet ovat " +
-          "yhä muistissa ja mukana viennissä, mutta katoavat jos suljet välilehden.");
+    return { merged, saved: false, failed: true };
   }
-  if (saved && merged.conflict) {
-    alert("Samaa vastausta oli muokattu toisessa välilehdessä. Molemmat versiot säilytettiin.");
-  }
-  if (saved && merged.revived) {
-    alert("Muokattava lomake oli poistettu toisessa välilehdessä. Muutokset tallennettiin uutena lomakkeena.");
-  }
-  updateCount();
+  return { merged, saved, failed: false };
 }
 function updateCount() {
   document.getElementById("count").textContent = forms.length + " tallennettu";
@@ -927,11 +952,22 @@ function clearAll() {
   // The entry in progress goes too: an edit has lost its row, and a new entry
   // may hold raffle contacts the post-event wipe is meant to remove.
   resetEntry();
-  // Recovery is always removed, or the next corrupt read would bring diverted
-  // rows back. A corrupt canonical blob cannot be merged, so that reset
-  // deletes it and returns later writes to STORAGE_KEY — but recovery rows
-  // this tab never had are copied across first. A readable canonical key is
-  // left for persist() to merge.
+  // wipeStorage reads rows that persist() writes, so its warnings wait for that write.
+  holdWarnings(() => {
+    wipeStorage();
+    persist({ wipeHeld: true });
+  });
+  if (forms.length) {
+    alert("Toisessa välilehdessä oli vastauksia, joita tässä näkymässä ei ollut. Niitä ei poistettu.");
+  }
+  renderReview();
+}
+// clearAll's storage side. Recovery is always removed, or the next corrupt read
+// would bring diverted rows back. A corrupt canonical blob cannot be merged, so
+// that reset deletes it and returns later writes to STORAGE_KEY — but recovery
+// rows this tab never had are copied across first. A readable canonical key is
+// left for persist() to merge.
+function wipeStorage() {
   try {
     if (storageUnreadable) {
       const recovered = readFormsKey(STORAGE_RECOVERY_KEY);
@@ -957,11 +993,6 @@ function clearAll() {
     warnedStorage.delete(heldWarnKey(STORAGE_KEY));
     warnedStorage.delete(heldWarnKey(STORAGE_RECOVERY_KEY));
   } catch (e) { /* storage disabled — in-memory wipe still stands */ }
-  persist({ wipeHeld: true });
-  if (forms.length) {
-    alert("Toisessa välilehdessä oli vastauksia, joita tässä näkymässä ei ollut. Niitä ei poistettu.");
-  }
-  renderReview();
 }
 
 /* ------------------------------------------------------------------ *

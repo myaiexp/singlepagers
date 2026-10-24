@@ -49,3 +49,10 @@ palaute's `persist()` adopts its merge (`forms`, `baseJson`, the conflict and
 revived alerts) only after `setItem` succeeds; a refused write leaves memory
 as it was, so the retry finds the same conflict once instead of minting a
 second copy of the other tab's row.
+
+No dialog may open between palaute's read of the store and its write. While
+an `alert` is open the other tab can save, and a write built from the earlier
+read would drop that save's rows and deletes (nothing listens for the
+`storage` event). `persist()` and `clearAll`'s `wipeStorage` run inside
+`holdWarnings`, which queues `warnStorage` messages and shows them after the
+write. Any new alert or confirm in that path must go after the write too.
