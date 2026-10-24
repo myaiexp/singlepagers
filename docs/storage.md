@@ -8,7 +8,13 @@ so ids and counters stay stable across reloads. A recovery value that fails
 to parse is left in place too: palaute keeps new rows in memory and tells the
 operator to export; yatzy does not write fresh seat ids over it. A palaute
 deleted-list that fails to parse diverts to its own `_recovery` sibling
-(`…_deleted_recovery`).
+(`…_deleted_recovery`). If that copy fails to parse too, no delete can be
+recorded (`tombstonesBlocked`), and a row leaves the store only together
+with its tombstone. A row removed without a tombstone is put back by the other
+tab's next merge, raffle name and phone included. So `deleteForm` refuses
+before its confirm, `persist` writes back stored rows whose ids this tab
+holds as deleted (still hidden here), and `clearAll`'s wipe removes the
+unreadable `_deleted_recovery` so its ids can be recorded there.
 
 A readable palaute store can still hold damaged rows. `splitRows` keeps a row
 in `forms` only when it is a plain object with a string id (`isKeptRow`), and

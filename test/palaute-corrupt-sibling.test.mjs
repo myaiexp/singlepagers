@@ -3,6 +3,7 @@
 // it with the empty read. A damaged deleted-list diverts to its own recovery
 // key so a delete still suppresses the row, including raffle name and phone.
 // If the forms recovery copy itself fails to parse, new rows stay in memory.
+// Both deleted-lists damaged: palaute-tombstone-blocked.test.mjs.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -113,24 +114,6 @@ test('clearAll records the wipe beside a corrupt tombstone instead of replacing 
   const diverted = JSON.parse(sandbox.localStorage.getItem(DELETED_RECOVERY_KEY));
   assert.ok(diverted.includes('row-1'));
   assert.deepEqual(idsOf(stored(sandbox)), []);
-});
-
-test('a corrupt tombstone and a corrupt diverted copy are both left untouched', () => {
-  const tombstone = '["row-1"';
-  const copy = '["row-1"';
-  const row = form('row-1', 'one', { name: 'Liisa', phone: '040' });
-  const { sandbox, run, alerts } = boot({
-    [STORAGE_KEY]: JSON.stringify([row]),
-    [DELETED_KEY]: tombstone,
-    [DELETED_RECOVERY_KEY]: copy,
-  });
-  run('deleteForm("row-1")');
-  assert.equal(sandbox.localStorage.getItem(DELETED_KEY), tombstone);
-  assert.equal(sandbox.localStorage.getItem(DELETED_RECOVERY_KEY), copy);
-  assert.equal(run('forms.length'), 0, 'this tab drops the row in memory');
-  assert.equal(JSON.stringify(stored(sandbox)).includes('Liisa'), false,
-    'the forms array this tab can write no longer carries the contact');
-  assert.ok(alerts.some(a => /Poistolistan palautuskopiota ei voitu lukea/.test(a)));
 });
 
 test('a corrupt forms recovery copy is left in place and new rows stay in memory', () => {

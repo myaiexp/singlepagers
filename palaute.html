@@ -227,8 +227,17 @@ const TOMBSTONE_MSG =
   "erilliseen palautuskopioon, jotta poistettu lomake ei palaa toisen välilehden tallennuksesta.";
 const TOMBSTONE_COPY_MSG =
   "⚠ Poistolistan palautuskopiota ei voitu lukea.\n\n" +
-  "Sitä ei ylikirjoiteta. Tässä välilehdessä tehdyt poistot pysyvät vain muistissa. " +
-  "Vie tiedot (Vie Excel) ennen välilehden sulkemista.";
+  "Sitä ei ylikirjoiteta. Siihen kirjattuja poistoja ei voida lukea, joten toisen " +
+  "välilehden tallennus voi palauttaa niissä poistetun lomakkeen.";
+const TOMBSTONE_BLOCKED_MSG =
+  "⚠ Poistolistaa eikä sen palautuskopiota voitu lukea (selaimen tallenne on vioittunut).\n\n" +
+  "Kumpaakaan ei ylikirjoiteta, joten poistoa ei voida tallentaa ja yksittäisen lomakkeen " +
+  "poisto on estetty: toisen välilehden tallennus palauttaisi poistetun lomakkeen. " +
+  "Tyhjennä kaikki toimii yhä — vie tiedot ensin (Vie Excel).";
+const DELETE_BLOCKED_MSG =
+  "Lomaketta ei voi poistaa: poistolista ja sen palautuskopio ovat vioittuneet, eikä " +
+  "poistoa voida tallentaa. Toisen välilehden tallennus palauttaisi lomakkeen. " +
+  "Vie tiedot (Vie Excel) ja käytä tarvittaessa Tarkastele → Tyhjennä kaikki.";
 
 /* ------------------------------------------------------------------ *
  * State
@@ -379,12 +388,24 @@ function deletedRecoveryKey(delKey) {
 // is not treated as empty — the bytes stay where they are.
 function absorbDeleted(delKey) {
   const primary = readDeletedKey(delKey);
-  if (primary.status === "corrupt") warnStorage(delKey, TOMBSTONE_MSG);
-  else for (const id of primary.ids) deletedIds.add(id);
   const copyKey = deletedRecoveryKey(delKey);
   const copy = readDeletedKey(copyKey);
-  if (copy.status === "corrupt") warnStorage(copyKey, TOMBSTONE_COPY_MSG);
-  else for (const id of copy.ids) deletedIds.add(id);
+  for (const id of primary.ids) deletedIds.add(id);
+  for (const id of copy.ids) deletedIds.add(id);
+  if (primary.status === "corrupt" && copy.status === "corrupt") {
+    warnStorage(copyKey, TOMBSTONE_BLOCKED_MSG);
+  } else if (primary.status === "corrupt") {
+    warnStorage(delKey, TOMBSTONE_MSG);
+  } else if (copy.status === "corrupt") {
+    warnStorage(copyKey, TOMBSTONE_COPY_MSG);
+  }
+}
+// True when neither the list nor its recovery copy may be written, so no delete
+// can be recorded. A row leaves the store only together with its tombstone:
+// without one, the other tab's next merge puts the row back.
+function tombstonesBlocked(delKey) {
+  return readDeletedKey(delKey).status === "corrupt" &&
+    readDeletedKey(deletedRecoveryKey(delKey)).status === "corrupt";
 }
 // Write the id set without setItem on a list that failed to parse. A damaged
 // list diverts to its own recovery key. If that copy is damaged too, skip the
@@ -544,6 +565,11 @@ function writeMerged({ wipeHeld = false } = {}) {
     const split = splitRows(read.value, key);
     if (!wipeHeld) held = split.held;
     merged = mergeForms(split.kept, forms);
+    // No tombstone can be written: a stored row this tab deleted stays on disk
+    // (still hidden here), or the other tab restores it and the two oscillate.
+    if (tombstonesBlocked(delKey)) {
+      held = [...split.kept.filter(f => deletedIds.has(f.id)), ...held];
+    }
   }
   try {
     // Record the suppression before the shrunk array, so a crash between the
@@ -938,6 +964,10 @@ function editForm(id) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function deleteForm(id) {
+  if (tombstonesBlocked(deletedStorageKey(storageUnreadable ? STORAGE_RECOVERY_KEY : STORAGE_KEY))) {
+    alert(DELETE_BLOCKED_MSG);
+    return;
+  }
   if (!confirm("Poistetaanko tämä lomake?")) return;
   if (typeof id === "string" && id) deletedIds.add(id);
   forms = forms.filter(f => f.id !== id);
@@ -998,7 +1028,14 @@ function wipeStorage() {
     }
     // Explicit wipe. This is the one place a corrupt forms blob is removed;
     // persist() never setItems over one. A corrupt deleted-list on a readable
-    // store is not in this set — that one stays for writeDeleted to divert.
+    // store stays for writeDeleted to divert. If its diverted copy is corrupt
+    // too, the wipe could record no tombstone and the other tab would restore
+    // every row, so that unreadable copy goes and the wipe's ids replace it.
+    const canonicalDel = deletedStorageKey(STORAGE_KEY);
+    if (tombstonesBlocked(canonicalDel)) {
+      localStorage.removeItem(deletedRecoveryKey(canonicalDel));
+      warnedStorage.delete(deletedRecoveryKey(canonicalDel));
+    }
     localStorage.removeItem(STORAGE_RECOVERY_KEY);
     localStorage.removeItem(deletedStorageKey(STORAGE_RECOVERY_KEY));
     localStorage.removeItem(deletedRecoveryKey(deletedStorageKey(STORAGE_RECOVERY_KEY)));
